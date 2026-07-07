@@ -8,6 +8,10 @@
     "tools/*"
   ],
   "scripts": {
-    "dev:env": "npm run dev --workspace=@world/viewer"
+    "dev:env": "npm run dev --workspace=@world/viewer",
+    "typecheck": "tsc --build packages/core packages/cli packages/viewer tools/audit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
   }
 }
