@@ -1,2 +1,7 @@
 # Claude Code のローカル設定（個人環境固有。共有しない）
 .claude/settings.local.json
+
+# Node（依存はDocker named volumeで保持。ホストには生成しない想定）
+node_modules/
+dist/
+*.tsbuildinfo
