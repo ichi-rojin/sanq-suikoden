@@ -5,26 +5,36 @@
 
 ---
 
-## Sprint M0-S1 用プロンプト
+## Sprint M0-S1 用プロンプト（v1.1: CR-4 Docker環境を含む）
 
 ```
 あなたはこのプロジェクトの実装担当である。docs/ai-kit/01-master-prompt.md の技術規約と
 docs/impl/m0/ の実装文書群（01〜08）に従え。
 
-実装対象: Sprint M0-S1「リポジトリ基盤」。
-仕様書: docs/impl/m0/02-architecture.md（§1フォルダ構成・§4依存規則・§5lint規約）。
-実装順序とコミット: docs/impl/m0/06-implementation-order.md および 07-commit-plan.md の C-01〜C-05 に厳密に従え。
+実装対象: Sprint M0-S1「Docker環境＋リポジトリ基盤」。
+仕様書: docs/impl/m0/02-architecture.md（§0 Docker環境・§1フォルダ構成・§4依存規則・§5lint規約）。
+実装順序とコミット: docs/impl/m0/06-implementation-order.md および 07-commit-plan.md の
+C-00→C-01→C-0V→C-02〜C-05 に厳密に従え。
 コミットは1ステップ1コミット。各コミット前に npm run verify（その時点で存在する検査すべて）を通せ。
 
-変更可能範囲: リポジトリルートの設定ファイル群、packages/core・packages/cli・tools/audit の骨格、
-scripts/verify.sh、tools/eslint-rules/。docs/ 以下は実装報告書以外変更禁止。
+Docker規律（CR-4。違反禁止）:
+- Node.js・npm の実行はコンテナ内のみ（docker compose exec dev ...）。ホストで npm install を実行するな。
+- node_modules は named volume（/app/node_modules）。bind mount で共有するな。ホストに生成するな。
+- C-0V で Vite HMR とブラウザアクセス（http://localhost:5173）を確認し、記録を実装報告書に残せ。
+- packages/viewer は環境シェルである。ゲームコード・PixiJS を入れるな（製品実装はM3以降）。
+- verify.sh に Vite を含めるな（検証ゲートはヘッドレスで完結）。
+
+変更可能範囲: リポジトリルートの設定ファイル群・docker/・README.md・CLAUDE.md、
+packages/core・packages/cli・packages/viewer・tools/audit の骨格、scripts/verify.sh、tools/eslint-rules/。
+docs/ 以下は実装報告書以外変更禁止。
 凍結API: docs/ledgers/ledger-frozen.md 記載の設計書群（変更禁止。矛盾を見つけたらCR起票して停止）。
 
 技術規約: TypeScript strict／層分離（Domain→App→Infra→Presentation、逆依存禁止）／
 Composition Rootでのみ配線／any禁止／Math.random禁止／マジックナンバー禁止／
 アルファベット順import／新規ファイル冒頭に「// 責務: 」コメント。
 
-完了の定義: C-05完了時点で npm run verify（typecheck→lint→depcruise→test）が全通過。
+完了の定義: C-05完了時点で docker compose exec dev npm run verify（typecheck→lint→depcruise→test）が
+全通過。08-dod.md の「Docker環境」節の全項目を満たす。
 規約違反サンプル（any・Math.random・依存逆行・責務コメント欠落）がそれぞれ検査で落ちることを
 確認するテストを一時的に作成し、確認後削除した記録をコミットメッセージに残せ。
 

@@ -1,11 +1,13 @@
 # コミット設計 ―（成果物⑦）
 
 粒度: 1コミット＝30〜90分。番号は 06-implementation-order.md と一致。
-共通完了条件（全コミット）: `npm run verify` 全通過／新規ファイル全てに責務コメント／コミットメッセージ末尾に `Co-Authored-By: Claude <noreply@anthropic.com>`。
+共通完了条件（全コミット）: `npm run verify` 全通過（**npmは常にコンテナ内**＝`docker compose exec dev`。CR-4）／新規ファイル全てに責務コメント／コミットメッセージ末尾に `Co-Authored-By: Claude <noreply@anthropic.com>`。
 
 | # | コミット名 | 目的 | 主な変更ファイル | 固有の完了条件 |
 |---|---|---|---|---|
-| C-01 | `chore(repo): npm workspaces骨格` | モノレポ成立 | package.json, packages/{core,cli}/package.json, tools/audit/package.json, 各src/index.ts | `npm install` 成功 |
+| C-00 | `chore(env): Docker開発環境と入口文書` | CR-4環境の成立 | docker/node/Dockerfile, docker-compose.yml, README.md, CLAUDE.md, .gitignore | `docker compose up -d` で常駐。ホストにnode_modules不生成の構成（named volume宣言） |
+| C-01 | `chore(repo): npm workspaces骨格` | モノレポ成立 | package.json, packages/{core,cli,viewer}/package.json, tools/audit/package.json, 各src/index.ts | コンテナ内 `npm install` 成功。ホストにnode_modulesなし |
+| C-0V | `chore(env): Vite環境シェルとHMR検証` | HMR・ブラウザアクセスの環境確認（CR-4） | packages/viewer/{vite.config.ts,index.html,src/main.ts}, package.json(dev:env) | ホストブラウザで表示＋HMR反映を確認（記録必須）。コンテナ再作成後も依存保持。ゲームコード・PixiJSなし |
 | C-02 | `chore(repo): TypeScript strict設定` | 型検査の床 | tsconfig.base.json, 各tsconfig.json | `npm run typecheck` 通過 |
 | C-03 | `chore(repo): ESLint規約の機械化` | any/Math.random/import順/責務コメントのlint化 | eslint.config.mjs, tools/eslint-rules/file-responsibility.mjs | 違反サンプルが落ちる確認テスト（確認後削除） |
 | C-04 | `chore(repo): 依存規則の機械検査` | 層分離の構造的強制 | .dependency-cruiser.cjs | 違反importフィクスチャで非ゼロ終了確認（確認後削除） |
@@ -22,5 +24,5 @@
 | C-15 | `feat(audit): 監査CLIと検証ゲート最終形` | M0ゲート常設化 | tools/audit/src/main.ts, scripts/verify.sh | verify最終形が全通過 |
 | C-16 | `docs(m0): 検収・実装報告書・台帳更新` | M0完了の記録 | docs/impl/m0/report-m0.md, docs/ledgers/* | 08-dod.md全項目チェック済み。凍結API記帳 |
 
-Sprint境界: C-05（S1完了）／C-12（S2完了）／C-16（S3=M0完了）。
+Sprint境界: C-05（S1完了。C-00〜C-0Vの環境確認済みが前提）／C-12（S2完了）／C-16（S3=M0完了）。
 差戻し規律: 同一コミットの完了条件を2回失敗したら、原因を実装報告書に記録してから3回目に入る（無限リトライで時間を溶かさない）。

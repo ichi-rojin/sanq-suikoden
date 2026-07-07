@@ -3,10 +3,18 @@
 M0完了の判定はこのチェックリストのみで行う。全項目にチェックが付かない限りM0は未完了。
 検収者: G14の帽子（実行はClaude Code、最終確認はProducer）。
 
+## Docker環境（CR-4）
+
+- [ ] `docker compose up -d` → `docker compose exec dev npm install` → `docker compose exec dev npm run verify` の3手順が新規クローンから再現する
+- [ ] ホストPCに `node_modules` が存在しない（`node_modules` は named volume `/app/node_modules` のみ）
+- [ ] コンテナ再作成（`docker compose down && up -d`）後も依存パッケージが保持される
+- [ ] Vite環境シェル（packages/viewer）でHMRが動作し、ホストブラウザから `http://localhost:5173` にアクセスできる（確認記録が実装報告書にある）
+- [ ] 環境シェルにゲームコード・PixiJSが含まれない
+
 ## 検証ゲート
 
-- [ ] `npm run verify` が全通過する（typecheck → lint → depcruise → test → validate-pack → audit-lexicon の順で直列実行）
-- [ ] verify は新規クローン直後（`npm install` のみ）で再現する
+- [ ] `npm run verify` が全通過する（typecheck → lint → depcruise → test → validate-pack → audit-lexicon の順で直列実行。npmはコンテナ内）
+- [ ] verify は新規クローン直後（コンテナ内 `npm install` のみ）で再現する
 
 ## パックスキーマ（M0ゲート前半）
 

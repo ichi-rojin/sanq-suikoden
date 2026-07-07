@@ -14,17 +14,19 @@ M0-S1 リポジトリ基盤 ──▶ M0-S2 パックスキーマ型＋検証器
 
 ---
 
-## M0-S1: リポジトリ基盤
+## M0-S1: Docker環境＋リポジトリ基盤（v1.1改訂: CR-4）
 
-- **目的**: 技術規約（TypeScript strict／層分離／規約lint）が**機械検査として**稼働する空のコードベースを作る。以後の全コミットはこの検査群を通過し続ける。
+- **目的**: Docker開発環境（CR-4）と、技術規約（TypeScript strict／層分離／規約lint）が**機械検査として**稼働する空のコードベースを作る。以後の全コミットはこの検査群を通過し続ける。
 - **実装内容**:
-  1. npm workspaces モノレポ（`packages/core`, `packages/cli`, `tools/audit`）
-  2. TypeScript strict 設定（`tsconfig.base.json`、各パッケージが継承）
-  3. ESLint（flat config）: `any`禁止・`Math.random`禁止・import順アルファベット・ファイル冒頭責務コメント必須（カスタムルール）
-  4. dependency-cruiser: 層分離規則（02-architecture.md §4）の機械検査
-  5. vitest 設定
-  6. `scripts/verify.sh`: 型検査→lint→依存検査→テストの直列実行（この時点で全てグリーン）
-- **完了条件**: `npm run verify` が空パッケージ状態で全通過。**規約違反を意図的に書いた自己試験ファイル**（any使用・Math.random使用・依存逆行）がそれぞれ検査で落ちることをテストで確認後、削除。
+  0. **Docker環境**（02-architecture.md §0）: `docker/node/Dockerfile`・`docker-compose.yml`（node_modulesは名前付きボリューム）・README.md・CLAUDE.md・.gitignore追記。**以後の全npm実行はコンテナ内**
+  1. npm workspaces モノレポ（`packages/core`, `packages/cli`, `packages/viewer`(環境シェル), `tools/audit`）
+  2. **Vite環境シェル**（02-architecture.md §0.4）: viewerでHMR＋ブラウザアクセスを検証（確認記録を残す）
+  3. TypeScript strict 設定（`tsconfig.base.json`、各パッケージが継承）
+  4. ESLint（flat config）: `any`禁止・`Math.random`禁止・import順アルファベット・ファイル冒頭責務コメント必須（カスタムルール）
+  5. dependency-cruiser: 層分離規則（02-architecture.md §4）の機械検査
+  6. vitest 設定
+  7. `scripts/verify.sh`: 型検査→lint→依存検査→テストの直列実行（この時点で全てグリーン。Viteは含めない）
+- **完了条件**: コンテナ再作成後も依存が保持される／ホストに`node_modules`が存在しない／HMR動作の確認記録／`docker compose exec dev npm run verify` が全通過。**規約違反を意図的に書いた自己試験ファイル**（any使用・Math.random使用・依存逆行）がそれぞれ検査で落ちることをテストで確認後、削除。
 - **次Sprintへの引き継ぎ**: グリーンな骨格。以後のSprintは `verify` を壊す状態でコミットしてはならない。
 
 ## M0-S2: パックスキーマ型＋検証器
