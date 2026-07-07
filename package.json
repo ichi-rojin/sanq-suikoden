@@ -15,6 +15,7 @@
     "test": "vitest run",
     "cli": "tsx packages/cli/src/main.ts",
     "validate-pack": "tsx packages/cli/src/main.ts validate-pack packs/fixtures/mini",
+    "audit-lexicon": "tsx tools/audit/src/main.ts packs/fixtures/mini",
     "verify": "bash scripts/verify.sh"
   },
   "devDependencies": {
