@@ -10,7 +10,8 @@
   "scripts": {
     "dev:env": "npm run dev --workspace=@world/viewer",
     "typecheck": "tsc --build packages/core packages/cli packages/viewer tools/audit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "depcruise": "depcruise --config .dependency-cruiser.cjs packages/core/src packages/cli/src packages/viewer/src tools/audit/src"
   },
   "devDependencies": {
     "typescript": "^5.7.3",
@@ -19,6 +20,7 @@
     "@typescript-eslint/eslint-plugin": "^8.21.0",
     "@typescript-eslint/parser": "^8.21.0",
     "eslint-plugin-import": "^2.31.0",
-    "globals": "^15.14.0"
+    "globals": "^15.14.0",
+    "dependency-cruiser": "^16.8.0"
   }
 }
