@@ -96,7 +96,7 @@
       "vocab.cause.defend": "郷土防衛",
       "vocab.agit.flood": "河川氾濫",
       "vocab.comm.official": "官界",
-      "vocab.comm.rivers": "江湖"
+      "vocab.comm.rivers": "浮草衆"
     }
   },
   "eraParams": { "lifespan": { "mean": 55, "stddev": 12 }, "moveSpeed": { "foot": 1, "horse": 3, "boat": 2 },

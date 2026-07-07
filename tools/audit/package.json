@@ -3,5 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "src/index.ts"
+  "main": "src/main.ts",
+  "dependencies": {
+    "@world/core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7"
+  }
 }
