@@ -68,6 +68,20 @@
 （`飲酒`）の閉じたUnion型として実装した。将来の追加は同書§6自己レビュー#2の改訂規約により
 「enum変更はCR必須」である。
 
+### C-09: eslint.config.mjs の no-unused-vars を @typescript-eslint 版に切替（M0-S2の変更可能範囲外への小修正）
+
+M0-S2の変更可能範囲は `packages/core/src`・`packages/cli/src`・`packs/fixtures/`・`scripts/verify.sh` と
+指定されており `eslint.config.mjs` は含まれない。しかしC-09でinterfaceのメソッドシグネチャ
+（`EventBus.publish(event: WorldEvent)` 等）や関数型注釈（`(event: WorldEvent) => void`）の
+引数名を、コアの `no-unused-vars` ルールが型注釈だけの仮引数と実装コードを区別できず
+誤検出（false positive）することが判明した。これは`@typescript-eslint/parser`使用時の既知の
+非互換であり、typescript-eslint公式が「コアの`no-unused-vars`を無効化し`@typescript-eslint/no-unused-vars`
+を使う」ことを標準的な回避策として案内している。放置するとinterfaceやコールバック型を書くたびに
+毎回誤検出が発生し、以後のC-10〜C-12のドメイン層実装（PackValidator等のインターフェース多用）で
+頻発することが予見されたため、C-03（M0-S1）で導入したlint基盤の設定不備の是正として、
+`eslint.config.mjs`に`"no-unused-vars": "off"` と `"@typescript-eslint/no-unused-vars": "error"` を
+追加した。スキーマ・enum・層構造など仕様に関わる変更は一切行っていない。
+
 ### C-08: enum値が明記されていないフィールドはstringのまま残した
 
 `PostDef.actionTags`（付与行動タグ: enum[]）・`SkillAcquisition.rarity`（稀少度）・
