@@ -73,4 +73,10 @@ export default [
       globals: globals.browser,
     },
   },
+  {
+    files: ["packages/cli/**/*.ts", "packages/core/src/infrastructure/**/*.ts", "tools/*/**/*.ts"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ];

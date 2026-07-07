@@ -1,4 +1,5 @@
 // 責務: 構造検証（パックスキーマ設計書§4-1）。必須セクション充足・ID参照解決・ID重複・循環参照
+import { parseTitleTemplate } from "../title-template";
 import { getProp, isArray, isRecord, isString } from "./guards";
 import { type ValidationIssue, errorIssue } from "./issue";
 
@@ -165,6 +166,34 @@ function checkAgents(root: Record<string, unknown>, nodeIds: Set<string>): Valid
   return issues;
 }
 
+function checkTitleTemplates(root: Record<string, unknown>): ValidationIssue[] {
+  const vocabulary = getProp(root, "vocabulary");
+  if (!isRecord(vocabulary)) {
+    return [];
+  }
+  const templatesRaw = getProp(vocabulary, "titleTemplates");
+  const templates = isArray(templatesRaw) ? templatesRaw : [];
+  const issues: ValidationIssue[] = [];
+
+  templates.forEach((template, index) => {
+    if (!isString(template)) {
+      return;
+    }
+    const result = parseTitleTemplate(template);
+    if (!result.ok) {
+      issues.push(
+        errorIssue(
+          "structural/title-template-syntax",
+          `vocabulary.titleTemplates[${index}]`,
+          `題テンプレの構文エラー（プレースホルダ置換以外は許可されない）: ${result.error}`,
+        ),
+      );
+    }
+  });
+
+  return issues;
+}
+
 export class StructuralRules {
   check(candidate: unknown): ValidationIssue[] {
     if (!isRecord(candidate)) {
@@ -178,6 +207,7 @@ export class StructuralRules {
       ...checkEngineSchemaVersion(candidate),
       ...geographyResult.issues,
       ...checkAgents(candidate, geographyResult.nodeIds),
+      ...checkTitleTemplates(candidate),
     ];
   }
 }

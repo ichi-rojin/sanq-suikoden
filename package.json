@@ -13,6 +13,8 @@
     "lint": "eslint .",
     "depcruise": "depcruise --config .dependency-cruiser.cjs packages/core/src packages/cli/src packages/viewer/src tools/audit/src",
     "test": "vitest run",
+    "cli": "tsx packages/cli/src/main.ts",
+    "validate-pack": "tsx packages/cli/src/main.ts validate-pack packs/fixtures/mini",
     "verify": "bash scripts/verify.sh"
   },
   "devDependencies": {
@@ -24,6 +26,7 @@
     "eslint-plugin-import": "^2.31.0",
     "globals": "^15.14.0",
     "dependency-cruiser": "^16.8.0",
-    "vitest": "^3.0.5"
+    "vitest": "^3.0.5",
+    "tsx": "^4.19.2"
   }
 }

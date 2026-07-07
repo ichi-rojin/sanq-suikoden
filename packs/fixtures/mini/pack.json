@@ -1,0 +1,108 @@
+{
+  "meta": {
+    "packId": "fixtures.mini",
+    "packName": "検証用ミニパック",
+    "version": "0.1.0",
+    "engineSchemaVersion": "1.0",
+    "sourceNote": "テスト用の架空世界"
+  },
+  "geography": {
+    "nodes": [
+      { "id": "node.riverfort", "nodeType": "県城", "wealth": 40, "population": 60,
+        "publicOrder": 50, "sentiment": 55, "enforcement": 45, "defense": 30,
+        "encounterWeight": 1.0, "regionTag": "east" },
+      { "id": "node.ferry", "nodeType": "通過点", "wealth": 10, "population": 5,
+        "publicOrder": 30, "sentiment": 50, "enforcement": 10, "defense": 10,
+        "encounterWeight": 3.0, "regionTag": "east" }
+    ],
+    "edges": [
+      { "id": "edge.e1", "from": "node.riverfort", "to": "node.ferry", "kind": "幹線", "distance": 2 }
+    ]
+  },
+  "agents": {
+    "explicit": [
+      { "id": "agent.stone", "familyName": "石", "givenName": "堅", "nickname": "vocab.nick.rock",
+        "origin": "vocab.origin.soldier", "startPost": "post.guard-captain", "startNode": "node.riverfort",
+        "aptitudes": { "valor": 70, "intellect": 40, "leadership": 55, "charisma": 45, "craft": 30 },
+        "values": { "altruism": 60, "loyalty": 80, "ambition": 30, "acquisition": 20,
+                     "aggression": 45, "caution": 65, "face": 70, "attachment": 50 },
+        "initialRelations": [
+          { "target": "agent.reed", "kind": "同僚", "axes": { "affection": 40, "trust": 50 } }
+        ],
+        "initialAssets": 20,
+        "initialFame": [ { "community": "community.officialdom", "value": 30 } ],
+        "sourceNote": "架空。S/A層はこの注記が必須（検証で強制）" },
+      { "id": "agent.reed", "familyName": "葦", "givenName": "青",
+        "origin": "vocab.origin.soldier", "startNode": "node.riverfort",
+        "aptitudes": { "valor": 50, "intellect": 55, "leadership": 45, "charisma": 50, "craft": 40 },
+        "values": { "altruism": 55, "loyalty": 60, "ambition": 25, "acquisition": 30,
+                     "aggression": 35, "caution": 60, "face": 55, "attachment": 60 },
+        "initialRelations": [],
+        "initialAssets": 15,
+        "initialFame": [],
+        "sourceNote": "架空。形状確認用の第2人物（agent.stoneの初期関係の解決先）" }
+    ],
+    "archetypes": [
+      { "id": "arch.brave", "nameRef": "vocab.arch.brave",
+        "valueDistributions": { "aggression": { "mean": 70, "stddev": 15 } },
+        "aptitudeBias": { "valor": 20 }, "originVocab": "vocab.origin.hunter" }
+    ],
+    "generation": { "initialBackgroundCount": { "min": 10, "max": 20 }, "successionParams": {} }
+  },
+  "institutions": [
+    { "id": "inst.county", "nameRef": "vocab.inst.county", "jurisdiction": ["node.riverfort"],
+      "rules": [
+        { "ruleKind": "処罰", "params": { "brandingEnabled": true, "escortRequired": true } },
+        { "ruleKind": "移送", "params": { "trunkRoadOnly": true } },
+        { "ruleKind": "課税", "params": { "rate": 0.2 } }
+      ],
+      "posts": [
+        { "id": "post.guard-captain", "nameRef": "vocab.post.guard", "capacity": 1,
+          "salary": 5, "actionTags": ["patrol", "escort"], "faceValue": 40 }
+      ],
+      "corruption": 60, "legitimacy": 70 }
+  ],
+  "skills": [
+    { "id": "skill.volley", "nameRef": "vocab.skill.volley",
+      "composition": [ { "primitive": "投射", "params": { "strayCheck": true, "volume": 3 } } ],
+      "witnessTag": null, "acquisition": { "aptitudeMin": { "valor": 40 }, "rarity": "common" } }
+  ],
+  "causes": [
+    { "id": "cause.defend-home", "nameRef": "vocab.cause.defend",
+      "valueProfile": { "attachment": 80 }, "hostilityTarget": "なし", "legitimacyBase": "自衛" }
+  ],
+  "agitation": [
+    { "id": "agit.flood", "kind": "災害", "nameRef": "vocab.agit.flood",
+      "target": "east", "frequencyBand": { "meanIntervalYears": 12 }, "intensity": { "sentimentDrop": 15 } }
+  ],
+  "vocabulary": {
+    "personNames": { "familyPool": ["石", "葦", "岡"], "givenRules": { "singleCharPool": ["堅", "青"] } },
+    "nicknames": { "rules": [ { "category": "性向", "key": "aggression>=70", "pool": ["vocab.nick.rock"] } ] },
+    "titleTemplates": [ "{地名}の{戦い|乱|変}" ],
+    "speech": { "entries": [ { "scene": "挑発", "personality": "aggression-high", "relation": "敵対",
+                                 "lines": ["去ね、それとも試すか。"] } ] },
+    "chroniclerStyle": { "tone": "plain" },
+    "displayNames": { "values.altruism": "義侠" },
+    "communities": [ { "id": "community.officialdom", "nameRef": "vocab.comm.official" },
+                      { "id": "community.rivers", "nameRef": "vocab.comm.rivers" } ],
+    "entries": {
+      "vocab.nick.rock": "岩塊",
+      "vocab.origin.soldier": "兵卒",
+      "vocab.origin.hunter": "猟師",
+      "vocab.arch.brave": "猛者",
+      "vocab.inst.county": "県府",
+      "vocab.post.guard": "捕頭",
+      "vocab.skill.volley": "斉射",
+      "vocab.cause.defend": "郷土防衛",
+      "vocab.agit.flood": "河川氾濫",
+      "vocab.comm.official": "官界",
+      "vocab.comm.rivers": "江湖"
+    }
+  },
+  "eraParams": { "lifespan": { "mean": 55, "stddev": 12 }, "moveSpeed": { "foot": 1, "horse": 3, "boat": 2 },
+                  "currency": "貫", "banquetFrequency": 1.5 },
+  "evaluationOverrides": {
+    "permanent": { "不義の目撃": 2.0, "公衆侮辱": 1.8 },
+    "temporaryStates": { "飲酒": { "axisMultipliers": { "caution": 0.5, "face": 1.3 }, "durationTicks": 1 } }
+  }
+}
