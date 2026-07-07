@@ -114,11 +114,11 @@ function checkNodes(root: Record<string, unknown>): ValidationIssue[] {
   return issues;
 }
 
-export const ConstitutionRules = {
+export class ConstitutionRules {
   check(candidate: unknown): ValidationIssue[] {
     if (!isRecord(candidate)) {
       return [];
     }
     return [...checkExplicitAgents(candidate), ...checkNodes(candidate)];
-  },
-};
+  }
+}

@@ -165,7 +165,7 @@ function checkAgents(root: Record<string, unknown>, nodeIds: Set<string>): Valid
   return issues;
 }
 
-export const StructuralRules = {
+export class StructuralRules {
   check(candidate: unknown): ValidationIssue[] {
     if (!isRecord(candidate)) {
       return [errorIssue("structural/root-type", "", "パック候補がオブジェクトでない")];
@@ -179,5 +179,5 @@ export const StructuralRules = {
       ...geographyResult.issues,
       ...checkAgents(candidate, geographyResult.nodeIds),
     ];
-  },
-};
+  }
+}

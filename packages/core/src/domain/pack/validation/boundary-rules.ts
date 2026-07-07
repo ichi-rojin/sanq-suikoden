@@ -124,7 +124,7 @@ function checkCommunities(root: Record<string, unknown>, knownKeys: Set<string>)
   return checkArraySection(vocabulary, "communities", ["nameRef"], knownKeys);
 }
 
-export const BoundaryRules = {
+export class BoundaryRules {
   check(candidate: unknown): ValidationIssue[] {
     if (!isRecord(candidate)) {
       return [];
@@ -141,5 +141,5 @@ export const BoundaryRules = {
       ...checkAgents(candidate, knownKeys),
       ...checkCommunities(candidate, knownKeys),
     ];
-  },
-};
+  }
+}

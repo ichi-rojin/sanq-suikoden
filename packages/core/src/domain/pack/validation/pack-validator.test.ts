@@ -7,38 +7,40 @@ import numericFixture from "../../../../../../packs/fixtures/invalid/numeric-out
 import structuralFixture from "../../../../../../packs/fixtures/invalid/structural-duplicate-id.json";
 import { PackValidator } from "./pack-validator";
 
-function ruleIds(report: ReturnType<typeof PackValidator.validate>): readonly string[] {
+const validator = new PackValidator();
+
+function ruleIds(report: ReturnType<typeof validator.validate>): readonly string[] {
   return report.issues.map((issue) => issue.ruleId);
 }
 
 describe("PackValidator rejection cases", () => {
   it("rejects duplicate node ids (structural)", () => {
-    const report = PackValidator.validate(structuralFixture);
+    const report = validator.validate(structuralFixture);
     expect(report.ok).toBe(false);
     expect(ruleIds(report)).toContain("structural/duplicate-id");
   });
 
   it("rejects a non-whitelisted relation kind (constitution)", () => {
-    const report = PackValidator.validate(constitutionFixture);
+    const report = validator.validate(constitutionFixture);
     expect(report.ok).toBe(false);
     expect(ruleIds(report)).toContain("constitution/relation-whitelist");
   });
 
   it("rejects a name reference unresolvable via vocabulary.entries (boundary)", () => {
-    const report = PackValidator.validate(boundaryFixture);
+    const report = validator.validate(boundaryFixture);
     expect(report.ok).toBe(false);
     expect(ruleIds(report)).toContain("boundary/unresolvable-vocab-ref");
   });
 
   it("rejects an out-of-domain numeric value (numeric)", () => {
-    const report = PackValidator.validate(numericFixture);
+    const report = validator.validate(numericFixture);
     expect(report.ok).toBe(false);
     expect(ruleIds(report)).toContain("numeric/out-of-domain");
   });
 
   it("is deterministic: the same input yields the same report twice", () => {
-    const first = PackValidator.validate(structuralFixture);
-    const second = PackValidator.validate(structuralFixture);
+    const first = validator.validate(structuralFixture);
+    const second = validator.validate(structuralFixture);
     expect(first.toJson()).toEqual(second.toJson());
   });
 });
@@ -116,7 +118,7 @@ describe("PackValidator acceptance case", () => {
       evaluationOverrides: { permanent: {}, temporaryStates: {} },
     };
 
-    const report = PackValidator.validate(validPack);
+    const report = validator.validate(validPack);
     expect(report.issues).toEqual([]);
     expect(report.ok).toBe(true);
   });

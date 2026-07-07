@@ -18,14 +18,19 @@ function extractPackId(candidate: unknown): string | undefined {
   return isString(packId) ? packId : undefined;
 }
 
-export const PackValidator = {
+export class PackValidator {
+  private readonly structuralRules = new StructuralRules();
+  private readonly numericRules = new NumericRules();
+  private readonly constitutionRules = new ConstitutionRules();
+  private readonly boundaryRules = new BoundaryRules();
+
   validate(candidate: unknown): ValidationReport {
     const issues = [
-      ...StructuralRules.check(candidate),
-      ...NumericRules.check(candidate),
-      ...ConstitutionRules.check(candidate),
-      ...BoundaryRules.check(candidate),
+      ...this.structuralRules.check(candidate),
+      ...this.numericRules.check(candidate),
+      ...this.constitutionRules.check(candidate),
+      ...this.boundaryRules.check(candidate),
     ];
     return createValidationReport(extractPackId(candidate), issues);
-  },
-};
+  }
+}

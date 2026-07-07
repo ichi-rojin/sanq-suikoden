@@ -189,7 +189,7 @@ function checkEraParams(root: Record<string, unknown>): ValidationIssue[] {
   return issues;
 }
 
-export const NumericRules = {
+export class NumericRules {
   check(candidate: unknown): ValidationIssue[] {
     if (!isRecord(candidate)) {
       return [];
@@ -200,5 +200,5 @@ export const NumericRules = {
       ...checkInstitutions(candidate),
       ...checkEraParams(candidate),
     ];
-  },
-};
+  }
+}
