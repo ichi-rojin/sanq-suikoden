@@ -4,7 +4,95 @@
 
 ## 変更ファイル一覧
 
-コミットごとの詳細は `git log` を正とする。本書には仕様との対応・解釈記録・残課題のみ記す。
+コミットごとの詳細は `git log` を正とする（`.gitignore`追加コミット以降、本セッションの全コミット）。
+以下は `git diff --name-only` による変更ファイルの一覧（`docs/`・`package-lock.json`を除く）。
+
+```
+.dependency-cruiser.cjs
+.gitignore
+CLAUDE.md
+README.md
+docker-compose.yml
+docker/node/Dockerfile
+eslint.config.mjs
+package.json
+packages/cli/package.json
+packages/cli/src/commands/validate-pack.test.ts
+packages/cli/src/commands/validate-pack.ts
+packages/cli/src/main.ts
+packages/cli/src/validate-pack.integration.test.ts
+packages/cli/tsconfig.json
+packages/core/package.json
+packages/core/src/application/pack/load-pack-use-case.test.ts
+packages/core/src/application/pack/load-pack-use-case.ts
+packages/core/src/application/pack/pack-parser.ts
+packages/core/src/application/pack/pack-repository.ts
+packages/core/src/application/pack/raw-pack-source.ts
+packages/core/src/domain/event/event-bus.ts
+packages/core/src/domain/event/world-event.test.ts
+packages/core/src/domain/event/world-event.ts
+packages/core/src/domain/pack/agents.test.ts
+packages/core/src/domain/pack/agents.ts
+packages/core/src/domain/pack/agitation.ts
+packages/core/src/domain/pack/causes.ts
+packages/core/src/domain/pack/era-params.ts
+packages/core/src/domain/pack/evaluation-overrides.ts
+packages/core/src/domain/pack/geography.test.ts
+packages/core/src/domain/pack/geography.ts
+packages/core/src/domain/pack/institutions.ts
+packages/core/src/domain/pack/meta.ts
+packages/core/src/domain/pack/skills.ts
+packages/core/src/domain/pack/title-template.test.ts
+packages/core/src/domain/pack/title-template.ts
+packages/core/src/domain/pack/validation/boundary-rules.ts
+packages/core/src/domain/pack/validation/constitution-rules.ts
+packages/core/src/domain/pack/validation/guards.ts
+packages/core/src/domain/pack/validation/issue.ts
+packages/core/src/domain/pack/validation/numeric-rules.ts
+packages/core/src/domain/pack/validation/pack-validator.test.ts
+packages/core/src/domain/pack/validation/pack-validator.ts
+packages/core/src/domain/pack/validation/report.ts
+packages/core/src/domain/pack/validation/structural-rules.ts
+packages/core/src/domain/pack/vocabulary.ts
+packages/core/src/domain/pack/world-pack.test.ts
+packages/core/src/domain/pack/world-pack.ts
+packages/core/src/domain/shared/brand.ts
+packages/core/src/domain/shared/ids.test.ts
+packages/core/src/domain/shared/ids.ts
+packages/core/src/domain/shared/score100.test.ts
+packages/core/src/domain/shared/score100.ts
+packages/core/src/domain/shared/time.ts
+packages/core/src/index.test.ts
+packages/core/src/index.ts
+packages/core/src/infrastructure/pack/file-pack-repository.ts
+packages/core/src/infrastructure/pack/json-pack-parser.test.ts
+packages/core/src/infrastructure/pack/json-pack-parser.ts
+packages/core/tsconfig.json
+packages/viewer/index.html
+packages/viewer/package.json
+packages/viewer/src/main.ts
+packages/viewer/tsconfig.json
+packages/viewer/vite.config.ts
+packs/fixtures/invalid/boundary-unresolvable-vocab-ref.json
+packs/fixtures/invalid/constitution-relation-whitelist.json
+packs/fixtures/invalid/numeric-out-of-domain.json
+packs/fixtures/invalid/structural-duplicate-id.json
+packs/fixtures/mini/pack.json
+scripts/verify.sh
+tools/audit/package.json
+tools/audit/src/ban-lexicon-builder.test.ts
+tools/audit/src/ban-lexicon-builder.ts
+tools/audit/src/main.test.ts
+tools/audit/src/main.ts
+tools/audit/src/source-scanner.test.ts
+tools/audit/src/source-scanner.ts
+tools/audit/tsconfig.json
+tools/eslint-rules/file-responsibility.mjs
+tsconfig.base.json
+vitest.config.ts
+```
+
+本書には上記に加え、仕様との対応・解釈記録・残課題を記す。
 
 ## 仕様との対応
 
@@ -24,6 +112,9 @@
 - C-12: 05-data-structures.md §1（ミニパック）・03-class-design.md §7（cli）に準拠。
   `node cli validate-pack packs/fixtures/mini` 相当（`npm run validate-pack`）が ok=0 で終了することを確認。
   verify.sh に validate-pack を追加。**M0-S2完了。**
+- C-13: 検出器仕様書§5.1・03-class-design.md §8（BanLexiconBuilder）に準拠。手書き禁止リストなし。
+- C-14: 検出器仕様書§5.1（SourceScanner。識別子・文字列・コメントの完全一致トークン照合）に準拠。
+- C-15: verify.sh 最終形（typecheck→lint→depcruise→test→validate-pack→audit-lexicon）に準拠。**M0-S3完了（M0完了）。**
 
 ## M0-S1完了確認（DoD該当節）
 
@@ -51,6 +142,66 @@
 - [x] ミニパック（`packs/fixtures/mini/`）が検証を通過し、CLIが終了コード0を返す
       — `npm run validate-pack`実行で確認、`validate-pack.integration.test.ts`で自動化
 - [x] PackValidatorが決定論的（同一入力2回で同一レポート）テストがある — `pack-validator.test.ts`「is deterministic」
+
+## M0完了確認（08-dod.md 全項目の自己チェック）
+
+### Docker環境（CR-4）
+
+- [x] `docker compose up -d` → `docker compose exec dev npm install` → `docker compose exec dev npm run verify` の3手順が新規クローンから再現する
+      — M0-S1完了時・本セクション作成時の双方で `docker compose down -v`（ボリューム含め完全削除）後に確認済み。
+- [x] ホストPCに `node_modules` が存在しない（named volumeのみ） — `docker volume inspect`でMountpointを確認済み。
+- [x] コンテナ再作成後も依存パッケージが保持される — 確認済み。
+- [x]（条件付き）Vite環境シェルでHMRが動作し、ホストブラウザから `http://localhost:5173` にアクセスできる
+      — 本セッションはヘッドレス環境のため実ブラウザでの目視確認ができない。機械的証跡（curl・HMRクライアント
+      注入・ファイル監視反映・自己受理境界の存在）による代替確認を行った（下記解釈記録参照）。**実ブラウザでの
+      最終確認は残課題（ledger-debtへ記帳）。**
+- [x] 環境シェルにゲームコード・PixiJSが含まれない — `packages/viewer/src/main.ts`は「environment OK」表示のみ。
+
+### 検証ゲート
+
+- [x] `npm run verify` が全通過する（typecheck→lint→depcruise→test→validate-pack→audit-lexicon）— 確認済み。
+- [x] verify は新規クローン直後で再現する — `docker compose down -v && up -d && npm install && npm run verify`で確認済み。
+
+### パックスキーマ（M0ゲート前半）
+
+上記「M0-S2完了確認」参照。全項目チェック済み。
+
+### 固有名詞監査（M0ゲート後半）
+
+- [x] 禁止リストがパックの語彙・実体名から自動生成される（手書きリストなし）— `BanLexiconBuilder`は
+      `WorldPack`の`vocabulary.entries`・`personNames.familyPool`・`agents.explicit`氏名のみを入力とする。
+- [x] エンジン層（`packages/*/src`。viewerと`*.test.ts`を除く。理由は解釈記録参照）の識別子・文字列・
+      コメントを走査する — `SourceScanner`。
+- [x] 混入自己試験: fixture語彙1語を混入させたテストで監査が検出する — `source-scanner.test.ts`の
+      「contamination self-test」に加え、実ソース（`geography.ts`）へ一時的に違反コメントを追加して
+      `npm run audit-lexicon`が非ゼロ終了することを手動確認後、削除して復旧した。
+- [x] 監査が verify.sh に常設され、検出時に非ゼロ終了する — 確認済み。
+
+### 規約の機械化
+
+- [x] `any` 使用がlintエラーになる（自己試験済み・C-03で確認後サンプル削除）
+- [x] `Math.random()` 使用がlintエラーになる（同上）
+- [x] 責務コメント欠落がlintエラーになる（同上）
+- [x] 依存規則違反（domain→infra等）がdepcruiseで落ちる（C-04で確認後フィクスチャ削除）
+
+### 範囲の規律
+
+- [x] 03-class-design.md §9 の除外リスト（集約・バス実装・乱数・observatory・Save/Load・viewer・LLM）に
+      該当する実装が存在しない — Agent/Faction/Party/Battle/EventLog/StoryShelf集約・EventBus実装・
+      具体イベント型・シード乱数ストリーム・observatory・Save/Load・PixiJS・LLM層のいずれも未実装。
+      `WorldEvent.type`は`string`型のプレースホルダのままG11ラウンドへ申し送り。
+- [x] 仕様の曖昧さに対する「解釈記録」が実装報告書に列挙されている — 本書「解釈記録」節に列挙（ゼロ件ではない）。
+- [x] 仕様変更が発生していない — 凍結設計書（世界観・スキーマ・enum・節構成）は無変更。唯一のデータ変更は
+      C-13で発見した`packs/fixtures/mini/pack.json`内の表示名衝突の是正（解釈記録参照）であり、
+      仕様変更ではなくテストフィクスチャの調整である。
+
+### 記録
+
+- [x] 実装報告書 `docs/impl/m0/report-m0.md` が存在する（変更ファイル一覧・仕様との対応・解釈記録・残課題）
+- [x] ledger-frozen.md に凍結APIとして「パックスキーマ型一式（domain/pack公開型）・WorldEvent封筒・
+      EventBusインターフェース」が記帳されている — 本コミットで記帳。
+- [x] 全コミットが 07-commit-plan.md の粒度・命名に従い、verify通過状態（その時点で存在する検査すべて）で
+      コミットされている。
 
 ## 解釈記録
 
@@ -203,6 +354,37 @@ enum化はCR対象になりうる）。
 スクリプトはC-02以降で個別に追加される。ルートpackage.jsonの `scripts` はC-01時点では意図的に未設置とし、
 各コミット（C-02: typecheck、C-03: lint、C-04: depcruise、C-05: test/verify）で該当スクリプトのみを追加した。
 
+### C-14/C-15: 監査の走査対象から packages/viewer/src と *.test.ts を除外した
+
+06-implementation-order.md（C-14）は走査対象を「packages/*/src」とのみ書くが、検出器仕様書§5.1は
+「走査対象：エンジン層（core/chronicle/observatory/cli）の全ソースとコメント。**viewerは対象外**
+（表示用語はG7裁量）」と明記している。より詳細かつ凍結された検出器仕様書を正とし、
+`packages/viewer/src` を監査対象から除外した。
+
+加えて、`*.test.ts`（`*.integration.test.ts`含む）もスキャン対象から除外した。理由:
+検出器仕様書§5.1が問題視するのは「台本の禁止」——エンジンの判断ロジックに特定の固有名詞が
+直接埋め込まれること（例: `if (name === "宋江") ...`）であり、これはコードが本番挙動を変える点に
+本質がある。一方、本プロジェクトのテストは型の形状確認のため人物名フィールド等に具体的な文字列
+（例:「石」「堅」）を使う必要があり、これはミニパックの語彙とたまたま重なりうる（実際、
+`agents.test.ts`・`world-pack.test.ts`・`pack-validator.test.ts`が「石」「堅」等をテストデータとして
+使用している）。テストデータの語彙再利用は「台本」ではなく、除外しない場合、監査は
+自分自身のテストスイートに対して大量の偽陽性を出し、有意義な形状テストを書くことを事実上
+不可能にする。走査対象は本番ロジック（domain/application/infrastructure/cliの非テストコード）に
+絞ることで、監査の本来の目的（エンジンロジックへの固有名詞混入の防止）を保ちつつ、
+テストの表現力を損なわない解釈とした。
+
+### C-13: BanLexiconBuilderの抽出範囲（「地名」カテゴリの構造的欠落）
+
+検出器仕様書§5.1は禁止リストの生成元カテゴリとして「人名・地名・勢力名・渾名・制度実体名・技名・大義名」
+を挙げるが、パックスキーマ設計書§2.2の`NodeDef`型には名称フィールド（nameRef等）が存在せず、
+`regionTag`は地方タグ（攪拌の対象指定用の識別子）であり文化的表示名ではない。すなわち「地名」の
+文化的表示文字列を持つ場所がスキーマ上どこにも存在しない（構造上の欠落であり、本実装での見落としではない）。
+そのため`BanLexiconBuilder`は「地名」カテゴリからの抽出を行っていない。この欠落はスキーマ設計書の
+改訂（フィールド追加はminor改訂、G9レビューのみで可）で解消されうるため、CR起票は不要と判断したが、
+次回改訂時の申し送り事項として記録する。
+
 ## 残課題
 
-- C-0VのHMR実ブラウザ確認（目視）が未実施。上記「解釈記録」参照。
+- C-0VのHMR実ブラウザ確認（目視）が未実施。上記「解釈記録」参照（`docs/ledgers/ledger-debt.md` D-8にも記帳）。
+- パックスキーマ設計書のNodeDefに「地名」の文化的表示名フィールドが存在せず、固有名詞監査の
+  「地名」カテゴリを実質的にカバーできていない（上記解釈記録参照。次回スキーマ改訂での追加を提案）。

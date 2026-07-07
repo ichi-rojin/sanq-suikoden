@@ -22,9 +22,21 @@
 
 ## 凍結API一覧
 
-（なし——M0未着手、実装コードは存在しない）
+**M0完了（2026-07-07、Claude Code実装、docs/impl/m0/report-m0.md参照）を受けて記帳。**
+以下は `packages/core` の公開API（`packages/core/src/index.ts`）。変更にはCR起票を要する
+（フィールド追加はパックスキーマ設計書§6の改訂規約によりminor/G9レビューのみ可、
+enum値・節構成の変更削除はCR必須）。
+
+| 対象 | 所在 | 内容 | 凍結範囲 |
+|---|---|---|---|
+| パックスキーマ型一式 | `packages/core/src/domain/pack/*` | `WorldPack`ルートと全10節の型（`PackMeta`・`Geography`・`Agents`・`InstitutionDef`・`SkillDef`・`CauseTemplate`・`AgitationEntry`・`Vocabulary`・`EraParams`・`EvaluationOverrides`）＋`RelationKind`等の全enum型＋`parseTitleTemplate` | 型定義・enum値・節構成 |
+| 検証器 | `packages/core/src/domain/pack/validation/*` | `PackValidator`と構造/数値/憲法/境界の4ルールクラス、`ValidationIssue`/`ValidationReport` | 公開APIの型・実行順序（構造→数値→憲法→境界） |
+| ロード経路 | `packages/core/src/application/pack/*`・`packages/core/src/infrastructure/pack/*` | `PackRepository`/`PackParser`インターフェース、`LoadPackUseCase`、`FilePackRepository`、`JsonPackParser` | 公開API型 |
+| WorldEvent封筒 | `packages/core/src/domain/event/world-event.ts` | `{id, tick, type, actors[], witnesses[], location, causes[], payload, salience}`（型のみ・実装ゼロ） | 型定義（`type`の具体カタログはG11ラウンドで別途凍結） |
+| EventBusインターフェース | `packages/core/src/domain/event/event-bus.ts` | `publish(e)`/`subscribe(type, handler)`（型のみ・実装ゼロ） | 型定義（配送規律の実装はM1） |
+| 共通基盤 | `packages/core/src/domain/shared/*` | `Brand`・全ブランドID型＋生成関数・`Score100`・`Tick`/`EventId` | 型定義・生成関数の検証規則 |
 
 ## 凍結予定（M0ゲート）
 
-- 世界パックスキーマ（エンジン/パック境界の型）——Owner=G9
+- ~~世界パックスキーマ（エンジン/パック境界の型）——Owner=G9~~ **解消（2026-07-07、M0完了）**：上記「凍結API一覧」参照。
 - 戦闘インターフェース（入力：参加勢力と地形／出力：イベント束）——世界設計書§18第4回で凍結方針決定済み、型定義はM0〜M1
