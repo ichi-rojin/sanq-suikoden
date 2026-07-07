@@ -1,0 +1,12 @@
+// 責務: 環境シェル用Vite設定（HMR確認専用。製品UIは含まない）
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  server: {
+    host: "0.0.0.0",
+    port: 5173,
+    watch: {
+      usePolling: true,
+    },
+  },
+});

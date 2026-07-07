@@ -6,5 +6,8 @@
   "workspaces": [
     "packages/*",
     "tools/*"
-  ]
+  ],
+  "scripts": {
+    "dev:env": "npm run dev --workspace=@world/viewer"
+  }
 }

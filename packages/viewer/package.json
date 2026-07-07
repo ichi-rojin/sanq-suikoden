@@ -3,5 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "src/index.ts"
+  "scripts": {
+    "dev": "vite"
+  },
+  "devDependencies": {
+    "vite": "^8.1.3"
+  }
 }
