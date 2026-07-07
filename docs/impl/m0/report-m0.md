@@ -15,6 +15,7 @@
 - C-03: 02-architecture.md §5（lint機械化）に準拠。
 - C-04: 02-architecture.md §4（依存規則）に準拠。
 - C-05: 07-commit-plan.md C-05（vitestと検証ゲート）に準拠。**M0-S1完了。**
+- C-10: パックスキーマ設計書§4（構造・憲法・境界・数値の4類）に準拠。固定順（構造→数値→憲法→境界）で合成。
 
 ## M0-S1完了確認（DoD該当節）
 
@@ -67,6 +68,39 @@
 評価場面はこの6件のみと判断した。よって `AppraisalContext` を5値、`TemporaryStateKey` を1値
 （`飲酒`）の閉じたUnion型として実装した。将来の追加は同書§6自己レビュー#2の改訂規約により
 「enum変更はCR必須」である。
+
+### C-10: 「循環参照ゼロ」の解釈
+
+パックスキーマ設計書§4-1は構造検証の要件として「循環参照ゼロ」を挙げるが、WorldPackスキーマには
+本質的に階層・依存木として非巡回性が要求される構造がない（地理のedgeは道路網でありA-B-C-Aのような
+閉路は正常なデータである。人物間のinitialRelationsも相互関係が自然であり巡回自体は異常ではない）。
+唯一「循環」として明確に異常と判定できるのは、人物が自分自身に対する初期関係を持つ場合（長さ0の
+自己参照）であるため、`structural/circular-reference` はこのケース（`initialRelations[].target`が
+自分自身のidと一致する場合）のみを検出する実装とした。将来、真に非巡回性が要求される参照構造が
+判明した場合は、その時点で検出対象を追加する（enum変更ではなく検証ルールの追加のため、
+パックスキーマ設計書のフィールド構造自体には影響しない）。
+
+### C-10: ValidationReport.ok の判定基準
+
+05-data-structures.md §2のValidationReport例は `severity` に `error`/`warning` の両方を許すが、
+`ok` とerror/warning件数の対応関係を明文化した一文は無い。04-events.mdは「issues空=0、非空=1」と
+簡潔に述べるのみで、warningのみのケースへの言及がない。保守的かつ一般的な検証システムの慣例
+（warningは可視化するが処理を止めない）に従い、`ok = (error件数 === 0)` とした
+（warningのみの場合はok=trueだが`issues`には記録され続ける）。M0のルール実装はすべてerror重大度で
+発行しており、本解釈がM0の挙動に実質的な影響を与えることは無い。
+
+### C-10: 4類ルールの実装範囲（境界検証・数値検証の対象フィールド）
+
+`BoundaryRules`は全ての`nameRef`/`origin`/`nickname`/`originVocab`系フィールドが`vocabulary.entries`
+から解決可能であることを検証する（institutions・skills・causes・agitation・agents.explicit・
+agents.archetypes・vocabulary.communities）。`NumericRules`はScore100系フィールド（地理6項目・
+素質5項目・価値観8項目・制度の腐敗度/正統性/面子値・初期名声値）と、正値性が要求される分布パラメータ
+の代表例（edge.distance・eraParams.lifespan.stddev・archetype.valueDistributions[axis].stddev）を
+検証する。スキーマ全フィールドの網羅的な検証（例: RuleParam.paramsの内部構造、SkillComposition.params
+の内部構造など、パック側が自由記述するパラメータ組）は意図的に対象外とした——これらはenum化されて
+いない自由記述のパラメータ袋であり、検証すべき定義域自体がdocsに存在しないためである
+（08-dod.mdは「検証4類それぞれに最低1つの拒否ケーステスト」を要求しており、全数値の悉皆検証は
+要求していない）。
 
 ### C-09: eslint.config.mjs の no-unused-vars を @typescript-eslint 版に切替（M0-S2の変更可能範囲外への小修正）
 

@@ -1,0 +1,35 @@
+{
+  "meta": { "packId": "fixtures.invalid.numeric", "packName": "定義域外の数値", "version": "0.1.0", "engineSchemaVersion": "1.0" },
+  "geography": {
+    "nodes": [
+      { "id": "node.a", "nodeType": "県城", "wealth": 150, "population": 40, "publicOrder": 40, "sentiment": 40, "enforcement": 40, "defense": 40, "encounterWeight": 1, "regionTag": "east" }
+    ],
+    "edges": []
+  },
+  "agents": {
+    "explicit": [],
+    "archetypes": [],
+    "generation": { "initialBackgroundCount": { "min": 1, "max": 1 }, "successionParams": {} }
+  },
+  "institutions": [],
+  "skills": [],
+  "causes": [],
+  "agitation": [],
+  "vocabulary": {
+    "personNames": { "familyPool": [], "givenRules": {} },
+    "nicknames": { "rules": [] },
+    "titleTemplates": [],
+    "speech": { "entries": [] },
+    "chroniclerStyle": { "tone": "plain" },
+    "displayNames": {},
+    "communities": [],
+    "entries": {}
+  },
+  "eraParams": {
+    "lifespan": { "mean": 55, "stddev": 12 },
+    "moveSpeed": { "foot": 1, "horse": 3, "boat": 2 },
+    "currency": "貫",
+    "banquetFrequency": 1
+  },
+  "evaluationOverrides": { "permanent": {}, "temporaryStates": {} }
+}

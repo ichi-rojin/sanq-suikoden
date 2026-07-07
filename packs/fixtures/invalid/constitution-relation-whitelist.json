@@ -1,0 +1,51 @@
+{
+  "meta": { "packId": "fixtures.invalid.relation", "packName": "初期怨恨の仕込み", "version": "0.1.0", "engineSchemaVersion": "1.0" },
+  "geography": {
+    "nodes": [
+      { "id": "node.a", "nodeType": "県城", "wealth": 40, "population": 40, "publicOrder": 40, "sentiment": 40, "enforcement": 40, "defense": 40, "encounterWeight": 1, "regionTag": "east" }
+    ],
+    "edges": []
+  },
+  "agents": {
+    "explicit": [
+      {
+        "id": "agent.a", "familyName": "石", "givenName": "堅",
+        "origin": "vocab.origin.soldier", "startNode": "node.a",
+        "aptitudes": { "valor": 50, "intellect": 50, "leadership": 50, "charisma": 50, "craft": 50 },
+        "values": { "altruism": 50, "loyalty": 50, "ambition": 50, "acquisition": 50, "aggression": 50, "caution": 50, "face": 50, "attachment": 50 },
+        "initialRelations": [ { "target": "agent.b", "kind": "怨恨", "axes": { "affection": 10 } } ],
+        "initialAssets": 0, "initialFame": [], "sourceNote": "架空"
+      },
+      {
+        "id": "agent.b", "familyName": "葦", "givenName": "青",
+        "origin": "vocab.origin.soldier", "startNode": "node.a",
+        "aptitudes": { "valor": 50, "intellect": 50, "leadership": 50, "charisma": 50, "craft": 50 },
+        "values": { "altruism": 50, "loyalty": 50, "ambition": 50, "acquisition": 50, "aggression": 50, "caution": 50, "face": 50, "attachment": 50 },
+        "initialRelations": [], "initialAssets": 0, "initialFame": [], "sourceNote": "架空"
+      }
+    ],
+    "archetypes": [],
+    "generation": { "initialBackgroundCount": { "min": 1, "max": 1 }, "successionParams": {} }
+  },
+  "institutions": [],
+  "skills": [],
+  "causes": [],
+  "agitation": [],
+  "vocabulary": {
+    "personNames": { "familyPool": [], "givenRules": {} },
+    "nicknames": { "rules": [] },
+    "titleTemplates": [],
+    "speech": { "entries": [] },
+    "chroniclerStyle": { "tone": "plain" },
+    "displayNames": {},
+    "communities": [],
+    "entries": { "vocab.origin.soldier": "兵卒" }
+  },
+  "eraParams": {
+    "lifespan": { "mean": 55, "stddev": 12 },
+    "moveSpeed": { "foot": 1, "horse": 3, "boat": 2 },
+    "currency": "貫",
+    "banquetFrequency": 1
+  },
+  "evaluationOverrides": { "permanent": {}, "temporaryStates": {} }
+}

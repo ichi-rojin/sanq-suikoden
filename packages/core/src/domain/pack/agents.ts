@@ -24,8 +24,10 @@ export interface Values {
 export type AptitudeKey = keyof Aptitudes;
 export type ValueAxisKey = keyof Values;
 
-/** 初期関係の種別。白紙原則（運命の白紙原則）により、この4値以外は型として書けない。 */
-export type RelationKind = "血縁" | "婚姻" | "師弟" | "同僚";
+/** 初期関係の種別ホワイトリスト。白紙原則（運命の白紙原則）により、この4値以外は型として書けない。 */
+export const RELATION_KINDS = ["血縁", "婚姻", "師弟", "同僚"] as const;
+
+export type RelationKind = (typeof RELATION_KINDS)[number];
 
 export interface InitialRelation {
   readonly target: AgentId;
