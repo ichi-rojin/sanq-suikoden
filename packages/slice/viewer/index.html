@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>縮小世界 — 生きている世界を眺める</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; background: #0d0c09; color: #e8dcc0;
+      font-family: "Hiragino Sans", "Noto Sans CJK JP", "Yu Gothic UI", "Meiryo", sans-serif; }
+    #topbar { height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 14px;
+      background: #1b1710; border-bottom: 2px solid #4a3d28; }
+    #date { font-size: 21px; font-weight: 700; color: #f3e3bd; min-width: 190px; }
+    #pop { color: #9f947e; font-size: 12px; }
+    #controls { display: flex; align-items: center; gap: 6px; }
+    #controls button { background: #2b2417; color: #e8dcc0; border: 1px solid #6a5c46;
+      padding: 4px 10px; cursor: pointer; font-size: 13px; border-radius: 3px; }
+    #controls button:hover { background: #3a3020; }
+    #speed { color: #cdb98f; font-size: 13px; min-width: 34px; text-align: center; }
+    #chips { display: flex; gap: 8px; flex-wrap: wrap; overflow: hidden; }
+    .chip { display: inline-flex; align-items: center; gap: 5px; background: #241e13;
+      border: 1px solid #4a3d28; padding: 3px 8px; font-size: 12px; border-radius: 3px; white-space: nowrap; }
+    .chip i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+    #wrap { display: flex; height: calc(100% - 52px); }
+    #stage { flex: 1; min-width: 0; position: relative; }
+    #stage canvas { display: block; }
+    #side { width: 380px; background: #14110c; border-left: 2px solid #4a3d28;
+      display: flex; flex-direction: column; }
+    #side h2 { font-size: 13px; color: #cdb98f; padding: 8px 12px; border-bottom: 1px solid #33291c;
+      letter-spacing: 2px; }
+    #log { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 12.5px; line-height: 1.65; }
+    #log .line { margin-bottom: 4px; }
+    #log .when { color: #8a7c60; font-size: 11px; margin-right: 2px; }
+    .log-war { color: #ff9a7a; }
+    .log-faction { color: #86d0e8; }
+    .log-bond { color: #f0c96a; }
+    .log-grudge { color: #e87a7a; }
+    .log-agit { color: #b0b8c2; }
+    .log-clash { color: #cbb79a; }
+    .log-plain { color: #d8d2c0; }
+    #log::-webkit-scrollbar { width: 8px; }
+    #log::-webkit-scrollbar-thumb { background: #4a3d28; }
+  </style>
+</head>
+<body>
+  <header id="topbar">
+    <span id="date">──</span>
+    <div id="controls">
+      <button id="btn-pause">⏸ 停止</button>
+      <button id="btn-slow">◀ 遅く</button>
+      <span id="speed">×1</span>
+      <button id="btn-fast">▶ 速く</button>
+    </div>
+    <span id="pop"></span>
+    <div id="chips"></div>
+  </header>
+  <div id="wrap">
+    <div id="stage"></div>
+    <aside id="side">
+      <h2>実況 ─ 世界の出来事</h2>
+      <div id="log"></div>
+    </aside>
+  </div>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

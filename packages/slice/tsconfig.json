@@ -4,5 +4,5 @@
     "noEmit": true,
     "declaration": false
   },
-  "include": ["src", "data"]
+  "include": ["src", "data", "viewer"]
 }

@@ -84,11 +84,18 @@ export default [
     // 全角スペースは日本語の読み物出力の整形に用いるため文字列内のみ許可
     files: ["packages/slice/**/*.ts"],
     languageOptions: {
-      globals: globals.node,
+      globals: { ...globals.node, ...globals.browser },
     },
     rules: {
       "no-magic-numbers": "off",
       "no-irregular-whitespace": ["error", { skipStrings: true, skipTemplates: true }],
+    },
+  },
+  {
+    // slice配下の開発補助スクリプト（.mjs）はnodeグローバルを許可
+    files: ["packages/slice/**/*.mjs"],
+    languageOptions: {
+      globals: globals.node,
     },
   },
 ];

@@ -3,5 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Vertical Slice（裁定R-14）: 体験検証用の縮小完成版。M1で破棄または移植する"
+  "description": "Vertical Slice（裁定R-14/R-15）: 体験検証用の縮小完成版とViewer。M1で破棄または移植する",
+  "dependencies": {
+    "pixi.js": "^8.19.0"
+  }
 }

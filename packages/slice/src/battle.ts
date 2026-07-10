@@ -573,6 +573,8 @@ export function runBattle(input: BattleInput): BattleOutcome {
     loc: place.id,
     attackerFaction: input.attacker.factionId,
     defenderFaction: input.defender.factionId,
+    siege,
+    units: units.map((u) => ({ glyph: u.glyph, officerId: u.officer.id, side: u.side })),
     frames,
     eventIds: [battleEvent.id],
   };

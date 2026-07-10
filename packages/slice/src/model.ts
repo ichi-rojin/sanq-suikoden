@@ -163,12 +163,21 @@ export interface BattleReplayFrame {
   notes: string[];
 }
 
+// リプレイ盤面の記号と武将の対応（Viewer描画用）
+export interface BattleReplayUnit {
+  glyph: string;
+  officerId: OfficerId;
+  side: 0 | 1;
+}
+
 export interface BattleReplay {
   id: string;
   tick: number;
   loc: PlaceId;
   attackerFaction: FactionId;
   defenderFaction: FactionId;
+  siege: boolean;
+  units: BattleReplayUnit[];
   frames: BattleReplayFrame[];
   eventIds: EventId[];
 }
