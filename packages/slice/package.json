@@ -1,0 +1,7 @@
+{
+  "name": "@world/slice",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Vertical Slice（裁定R-14）: 体験検証用の縮小完成版。M1で破棄または移植する"
+}

@@ -79,4 +79,16 @@ export default [
       globals: globals.node,
     },
   },
+  {
+    // Vertical Slice（裁定R-14）: 体験検証用の仮実装につき数値リテラル規制を緩和。
+    // 全角スペースは日本語の読み物出力の整形に用いるため文字列内のみ許可
+    files: ["packages/slice/**/*.ts"],
+    languageOptions: {
+      globals: globals.node,
+    },
+    rules: {
+      "no-magic-numbers": "off",
+      "no-irregular-whitespace": ["error", { skipStrings: true, skipTemplates: true }],
+    },
+  },
 ];
