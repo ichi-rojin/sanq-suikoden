@@ -21,10 +21,10 @@ import { armyTroops, dayOf, livingOfficers, monthOf, placePos, yearOf } from "..
 import { buildWorld, stepDay } from "../src/sim";
 import { DramaView } from "./drama-view";
 import { buildTerrainLayer } from "./terrain";
-import { CELL, SKILL_POP, factionColor, logClassOf } from "./theme";
+import { CELL, SKILL_LABEL, SKILL_POP, factionColor, logClassOf } from "./theme";
 import { WorldView } from "./world-view";
 
-const BASE_DAY_MS = 300; // ×1速度の1日。1ヶ月≒9秒（SAN9の旬進行の距離感）
+const BASE_DAY_MS = 1200; // ×1速度の1日。武将が考えながら進む様子・戦況の変化をじっくり眺められるテンポ（Producer指示R-20）
 const LOG_LIMIT = 160;
 const WORLD_PX_W = GRID_W * CELL;
 const WORLD_PX_H = GRID_H * CELL;
@@ -51,7 +51,7 @@ function colorHex(color: number): string {
 async function boot(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const seed = Number(params.get("seed") ?? "7");
-  const initialZoom = Number(params.get("z") ?? "1");
+  const initialZoom = Number(params.get("z") ?? "2"); // 既定倍率2（CELL16との掛け合わせで従来比4倍の視認性）
   const jumpParam = params.get("jump");
   const initialSpeed = Number(params.get("speed") ?? "1");
 
@@ -103,7 +103,7 @@ async function boot(): Promise<void> {
     follow = undefined;
     camera.x = x * CELL + CELL / 2;
     camera.y = y * CELL + CELL / 2;
-    camera.targetZoom = Math.max(camera.targetZoom, 1.8);
+    camera.targetZoom = Math.max(camera.targetZoom, 3.5);
   };
 
   const applyCamera = (): void => {
@@ -145,7 +145,7 @@ async function boot(): Promise<void> {
   app.canvas.addEventListener("wheel", (ev) => {
     ev.preventDefault();
     const factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
-    camera.targetZoom = Math.max(0.45, Math.min(4, camera.targetZoom * factor));
+    camera.targetZoom = Math.max(0.22, Math.min(8, camera.targetZoom * factor));
   }, { passive: false });
   window.addEventListener("keydown", (ev) => {
     const step = 60 / camera.zoom;
@@ -350,6 +350,59 @@ async function boot(): Promise<void> {
   // ---- 選択情報（都市・武将・軍） ----
   const infoBox = el<HTMLDivElement>("info");
   let selected: { kind: "officer" | "place" | "army"; id: string } | undefined;
+
+  const POLICY_LABEL: Record<string, string> = {
+    develop: "内政に注力", defend: "防衛を固める", expand: "侵攻の構え", recruit: "兵を募る",
+    suppress: "討伐の構え", raid: "近郷を狙う", seeklair: "要害を探す",
+  };
+
+  // 武将の行動予定: 軍中なら軍の目的地、旅の空なら行き先、頭領なら勢力の方針
+  const planOf = (officer: Officer): string | undefined => {
+    const army = world.armies.find((a) => a.units.some((u) => u.officerId === officer.id));
+    if (army !== undefined) {
+      if (army.battleId !== undefined || army.state === "fight") {
+        return "交戦の最中";
+      }
+      const goalLabel = army.goal === "suppress" ? "討伐" : "侵攻";
+      return `${names.place(army.target)}へ${goalLabel}中`;
+    }
+    if (officer.journey !== undefined) {
+      return `${names.place(officer.journey.dest)}へ向けて移動中`;
+    }
+    const faction = officer.factionId !== undefined ? world.factions.get(officer.factionId) : undefined;
+    if (faction !== undefined && faction.leader === officer.id) {
+      return `勢力の方針: ${POLICY_LABEL[faction.policy] ?? faction.policy}`;
+    }
+    return undefined;
+  };
+
+  // Story Packageの蓄積からの関連履歴を編年で並べる（人物・拠点で共用）
+  const historySection = (title: string, events: WorldEvent[]): HTMLElement => {
+    const wrap = document.createElement("div");
+    const head = document.createElement("div");
+    head.className = "info-section";
+    head.textContent = title;
+    wrap.appendChild(head);
+    if (events.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "info-hist dim";
+      empty.textContent = "まだ記録なし";
+      wrap.appendChild(empty);
+      return wrap;
+    }
+    for (const event of events) {
+      const row = document.createElement("div");
+      row.className = "info-hist";
+      const when = document.createElement("span");
+      when.className = "when";
+      when.textContent = `${names.yearLabel(yearOf(event.tick))}${names.monthLabel(monthOf(event.tick))}`;
+      row.appendChild(when);
+      row.appendChild(document.createTextNode(narrateEvent(event, names)));
+      wrap.appendChild(row);
+    }
+    return wrap;
+  };
+
   const describeOfficer = (officer: Officer): string[] => {
     const lines: string[] = [];
     const faction = officer.factionId !== undefined ? names.faction(officer.factionId) : "無所属";
@@ -362,6 +415,9 @@ async function boot(): Promise<void> {
     lines.push(`${faction}／${statusLabel}／${officer.age}歳　今: ${where}`);
     const a = officer.aptitudes;
     lines.push(`武${Math.round(a.valor)} 知${Math.round(a.intellect)} 統${Math.round(a.leadership)} 魅${Math.round(a.charisma)} 術${Math.round(a.craft)}`);
+    if (officer.skills.length > 0) {
+      lines.push(`得意技: ${officer.skills.map((s) => SKILL_LABEL[s] ?? s).join("・")}`);
+    }
     const sworn = [...officer.rel.entries()].filter(([, r]) => r.bond === "sworn").map(([id]) => names.officerShort(id));
     if (sworn.length > 0) {
       lines.push(`義兄弟: ${sworn.join("、")}`);
@@ -369,10 +425,6 @@ async function boot(): Promise<void> {
     const grudges = [...officer.rel.entries()].filter(([, r]) => r.grudges.length > 0);
     if (grudges.length > 0) {
       lines.push(`怨恨: ${grudges.map(([id]) => names.officerShort(id)).join("、")}`);
-    }
-    const recent = officer.memory.slice(-3).map((id) => eventOf(id)).filter((e): e is WorldEvent => e !== undefined);
-    for (const event of recent) {
-      lines.push(`・${narrateEvent(event, names)}`);
     }
     return lines;
   };
@@ -400,6 +452,18 @@ async function boot(): Promise<void> {
         div.textContent = line;
         body.appendChild(div);
       }
+      const plan = planOf(officer);
+      if (plan !== undefined) {
+        const div = document.createElement("div");
+        div.className = "info-plan";
+        div.textContent = `予定: ${plan}`;
+        body.appendChild(div);
+      }
+      const officerHistory = officer.memory
+        .slice(-10)
+        .map((id) => eventOf(id))
+        .filter((e): e is WorldEvent => e !== undefined);
+      body.appendChild(historySection("履歴", officerHistory));
     } else if (selected.kind === "place") {
       const place = world.places.get(selected.id);
       if (place === undefined) {
@@ -419,6 +483,8 @@ async function boot(): Promise<void> {
         div.textContent = line;
         body.appendChild(div);
       }
+      const placeHistory = world.events.filter((e) => e.loc === place.id).slice(-10);
+      body.appendChild(historySection("関連履歴", placeHistory));
     } else {
       const army = world.armies.find((a) => a.id === selected?.id);
       if (army === undefined) {
@@ -436,7 +502,7 @@ async function boot(): Promise<void> {
     followBtn.addEventListener("click", () => {
       if (selected !== undefined) {
         follow = { ...selected };
-        camera.targetZoom = Math.max(camera.targetZoom, 1.6);
+        camera.targetZoom = Math.max(camera.targetZoom, 3.2);
       }
     });
     title.appendChild(followBtn);
@@ -617,7 +683,7 @@ async function boot(): Promise<void> {
     follow = undefined;
     camera.x = (kaifengSeed?.gridX ?? 0) * CELL + CELL / 2;
     camera.y = (kaifengSeed?.gridY ?? 0) * CELL + CELL / 2;
-    camera.targetZoom = 1.0;
+    camera.targetZoom = 2.0;
   });
   renderSpeed();
 
@@ -641,7 +707,7 @@ async function boot(): Promise<void> {
         knownBattles.add(battle.id);
         if (autoBattleJump) {
           follow = { kind: "battle", id: battle.id };
-          camera.targetZoom = Math.max(1.5, camera.targetZoom);
+          camera.targetZoom = Math.max(3.0, camera.targetZoom);
         }
       }
     }

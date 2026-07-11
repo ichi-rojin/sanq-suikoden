@@ -47,9 +47,9 @@ export function buildTerrainLayer(world: World): TerrainLayer {
         // 木立: タイル内に1〜2本の針葉樹
         const trees = r(0) < 0.6 ? 2 : 1;
         for (let i = 0; i < trees; i += 1) {
-          const cx = px + 2 + r(i * 2 + 1) * (CELL - 4);
-          const cy = py + 3 + r(i * 2 + 2) * (CELL - 4);
-          const s = 2 + r(i + 7) * 2;
+          const cx = px + 4 + r(i * 2 + 1) * (CELL - 8);
+          const cy = py + 6 + r(i * 2 + 2) * (CELL - 8);
+          const s = 4 + r(i + 7) * 4;
           ctx.fillStyle = i % 2 === 0 ? "#1c3a1e" : "#234a26";
           ctx.beginPath();
           ctx.moveTo(cx - s, cy + s);
@@ -62,9 +62,9 @@ export function buildTerrainLayer(world: World): TerrainLayer {
       }
       case T.mountain: {
         // 峰: 濃淡二色の三角
-        const cx = px + CELL / 2 + (r(1) - 0.5) * 3;
-        const cy = py + CELL / 2 + (r(2) - 0.5) * 2;
-        const s = 3.4 + r(3) * 3;
+        const cx = px + CELL / 2 + (r(1) - 0.5) * 6;
+        const cy = py + CELL / 2 + (r(2) - 0.5) * 4;
+        const s = 6.8 + r(3) * 6;
         ctx.fillStyle = "#4e4237";
         ctx.beginPath();
         ctx.moveTo(cx - s, cy + s * 0.8);
@@ -83,15 +83,15 @@ export function buildTerrainLayer(world: World): TerrainLayer {
       }
       case T.hill: {
         // 丘陵: 山より低く丸い稜線。防御に拠れる緩やかな高まり
-        const cx = px + CELL / 2 + (r(1) - 0.5) * 3;
-        const cy = py + CELL / 2 + 1;
-        const s = 3 + r(2) * 2;
+        const cx = px + CELL / 2 + (r(1) - 0.5) * 6;
+        const cy = py + CELL / 2 + 2;
+        const s = 6 + r(2) * 4;
         ctx.fillStyle = "rgba(70,80,50,0.55)";
         ctx.beginPath();
         ctx.ellipse(cx, cy, s, s * 0.55, 0, Math.PI, 0);
         ctx.fill();
         ctx.strokeStyle = "rgba(140,150,100,0.3)";
-        ctx.lineWidth = 0.8;
+        ctx.lineWidth = 1.4;
         ctx.beginPath();
         ctx.ellipse(cx, cy, s * 0.6, s * 0.32, 0, Math.PI, 0);
         ctx.stroke();
@@ -100,10 +100,10 @@ export function buildTerrainLayer(world: World): TerrainLayer {
       case T.sea: {
         if (r(1) < 0.06) {
           ctx.strokeStyle = "rgba(150,190,220,0.25)";
-          ctx.lineWidth = 1;
+          ctx.lineWidth = 1.6;
           ctx.beginPath();
-          ctx.moveTo(px + 1, py + CELL / 2);
-          ctx.lineTo(px + CELL - 1, py + CELL / 2);
+          ctx.moveTo(px + 2, py + CELL / 2);
+          ctx.lineTo(px + CELL - 2, py + CELL / 2);
           ctx.stroke();
         }
         break;
@@ -112,25 +112,25 @@ export function buildTerrainLayer(world: World): TerrainLayer {
         // 水面のハイライト
         if (r(1) < 0.3) {
           ctx.fillStyle = "rgba(120,180,210,0.25)";
-          ctx.fillRect(px + 1, py + 2, CELL - 2, 1.5);
+          ctx.fillRect(px + 2, py + 4, CELL - 4, 3);
         }
         break;
       }
       case T.marsh: {
         ctx.fillStyle = "rgba(90,140,130,0.5)";
         ctx.beginPath();
-        ctx.ellipse(px + CELL / 2, py + CELL / 2, 2.5, 1.4, 0, 0, Math.PI * 2);
+        ctx.ellipse(px + CELL / 2, py + CELL / 2, 5, 2.8, 0, 0, Math.PI * 2);
         ctx.fill();
         break;
       }
       case T.ford: {
         // 渡し場: 桟の刻み
         ctx.strokeStyle = "rgba(210,190,150,0.7)";
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.6;
         for (let i = 1; i < 3; i += 1) {
           ctx.beginPath();
-          ctx.moveTo(px + 1, py + i * (CELL / 3));
-          ctx.lineTo(px + CELL - 1, py + i * (CELL / 3));
+          ctx.moveTo(px + 2, py + i * (CELL / 3));
+          ctx.lineTo(px + CELL - 2, py + i * (CELL / 3));
           ctx.stroke();
         }
         break;
@@ -139,31 +139,31 @@ export function buildTerrainLayer(world: World): TerrainLayer {
         // 轍の点描
         if (r(1) < 0.4) {
           ctx.fillStyle = "rgba(60,48,34,0.5)";
-          ctx.fillRect(px + 2 + r(2) * 3, py + 2 + r(3) * 3, 1.4, 1.4);
+          ctx.fillRect(px + 4 + r(2) * 6, py + 4 + r(3) * 6, 2.6, 2.6);
         }
         break;
       }
       case T.wall: {
         ctx.strokeStyle = "#5f5f5f";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(px + 0.5, py + 0.5, CELL - 1, CELL - 1);
+        ctx.lineWidth = 1.6;
+        ctx.strokeRect(px + 1, py + 1, CELL - 2, CELL - 2);
         break;
       }
       case T.gate: {
         ctx.fillStyle = "#6b4e2e";
-        ctx.fillRect(px + 2, py + 1, CELL - 4, CELL - 2);
+        ctx.fillRect(px + 4, py + 2, CELL - 8, CELL - 4);
         break;
       }
       case T.rubble: {
         ctx.fillStyle = "#6d675f";
         for (let i = 0; i < 3; i += 1) {
-          ctx.fillRect(px + 1 + r(i) * (CELL - 3), py + 1 + r(i + 4) * (CELL - 3), 2, 2);
+          ctx.fillRect(px + 2 + r(i) * (CELL - 6), py + 2 + r(i + 4) * (CELL - 6), 3.6, 3.6);
         }
         break;
       }
       case T.burnt: {
         ctx.fillStyle = "rgba(0,0,0,0.35)";
-        ctx.fillRect(px + r(1) * 3, py + r(2) * 3, CELL - 3, CELL - 3);
+        ctx.fillRect(px + r(1) * 6, py + r(2) * 6, CELL - 6, CELL - 6);
         break;
       }
       default:

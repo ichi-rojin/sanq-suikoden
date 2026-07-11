@@ -63,13 +63,13 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "qin-ming", family: "秦", given: "明", nickname: "霹靂火", age: 40,
     apt: A(88, 40, 70, 50, 35), val: V(55, 70, 40, 25, 90, 22, 72, 50),
-    skills: ["charge"], startNode: "qingzhou", faction: "court", fameOfficial: 58, fameOutlaw: 10,
+    skills: ["charge", "rockfall"], startNode: "qingzhou", faction: "court", fameOfficial: 58, fameOutlaw: 10,
     relations: [{ target: "hua-rong", affinity: 45, trust: 55, bond: "colleague" }],
   },
   {
     id: "huang-xin", family: "黄", given: "信", nickname: "鎮三山", age: 36,
     apt: A(70, 52, 64, 48, 40), val: V(45, 68, 38, 35, 55, 50, 65, 45),
-    skills: ["volley"], startNode: "qingzhou", faction: "court", fameOfficial: 45, fameOutlaw: 5,
+    skills: ["volley", "taunt"], startNode: "qingzhou", faction: "court", fameOfficial: 45, fameOutlaw: 5,
     relations: [{ target: "qin-ming", affinity: 50, trust: 60, bond: "master" }],
   },
   {
@@ -80,12 +80,12 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "guan-sheng", family: "関", given: "勝", nickname: "大刀", age: 37,
     apt: A(90, 65, 82, 62, 40), val: V(60, 82, 42, 15, 55, 58, 82, 40),
-    skills: ["charge"], startNode: "luoyang", faction: "court", fameOfficial: 66, fameOutlaw: 0, relations: [],
+    skills: ["charge", "taunt"], startNode: "luoyang", faction: "court", fameOfficial: 66, fameOutlaw: 0, relations: [],
   },
   {
     id: "yang-zhi", family: "楊", given: "志", nickname: "青面獣", age: 35,
     apt: A(84, 55, 62, 40, 45), val: V(48, 72, 45, 30, 58, 48, 86, 35),
-    skills: ["charge"], startNode: "kaifeng", faction: "court", fameOfficial: 40, fameOutlaw: 15, relations: [],
+    skills: ["charge", "rockfall"], startNode: "kaifeng", faction: "court", fameOfficial: 40, fameOutlaw: 15, relations: [],
   },
   {
     id: "suo-chao", family: "索", given: "超", nickname: "急先鋒", age: 33,
@@ -95,7 +95,7 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "dong-ping", family: "董", given: "平", nickname: "双槍将", age: 32,
     apt: A(86, 58, 68, 60, 45), val: V(40, 60, 55, 35, 80, 30, 72, 45),
-    skills: ["charge"], startNode: "jizhou", faction: "court", fameOfficial: 52, fameOutlaw: 5, relations: [],
+    skills: ["charge", "ambush"], startNode: "jizhou", faction: "court", fameOfficial: 52, fameOutlaw: 5, relations: [],
   },
   {
     id: "wen-da", family: "聞", given: "達", age: 45,
@@ -120,13 +120,13 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "zhu-tong", family: "朱", given: "仝", nickname: "美髯公", age: 38,
     apt: A(76, 55, 66, 62, 40), val: V(82, 68, 25, 15, 45, 55, 66, 70),
-    skills: ["charge"], startNode: "yuncheng", faction: "court", fameOfficial: 46, fameOutlaw: 30,
+    skills: ["charge", "taunt"], startNode: "yuncheng", faction: "court", fameOfficial: 46, fameOutlaw: 30,
     relations: [{ target: "lei-heng", affinity: 58, trust: 62, bond: "colleague" }],
   },
   {
     id: "lei-heng", family: "雷", given: "横", nickname: "挿翅虎", age: 35,
     apt: A(72, 48, 58, 45, 42), val: V(55, 60, 35, 45, 70, 35, 76, 60),
-    skills: ["charge"], startNode: "yuncheng", faction: "court", fameOfficial: 40, fameOutlaw: 25, relations: [],
+    skills: ["charge", "ambush"], startNode: "yuncheng", faction: "court", fameOfficial: 40, fameOutlaw: 25, relations: [],
   },
   {
     id: "dai-zong", family: "戴", given: "宗", nickname: "神行太保", age: 39,
@@ -147,7 +147,7 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "luan-tingyu", family: "欒", given: "廷玉", nickname: "鉄棒", age: 41,
     apt: A(85, 62, 72, 50, 45), val: V(45, 70, 35, 30, 50, 58, 72, 40),
-    skills: ["charge", "ambush"], startNode: "zhujiazhuang", faction: "zhu", fameOfficial: 30, fameOutlaw: 20, relations: [],
+    skills: ["charge", "ambush", "rockfall"], startNode: "zhujiazhuang", faction: "zhu", fameOfficial: 30, fameOutlaw: 20, relations: [],
   },
   {
     id: "zhu-long", family: "祝", given: "龍", age: 30,
@@ -164,7 +164,7 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "hu-sanniang", family: "扈", given: "三娘", nickname: "一丈青", age: 24,
     apt: A(83, 55, 60, 65, 55), val: V(50, 58, 40, 25, 60, 50, 66, 55),
-    skills: ["charge"], startNode: "zhujiazhuang", faction: "zhu", fameOfficial: 15, fameOutlaw: 25, relations: [],
+    skills: ["charge", "ambush"], startNode: "zhujiazhuang", faction: "zhu", fameOfficial: 15, fameOutlaw: 25, relations: [],
   },
   // ===== 曾頭市 =====
   {
@@ -196,12 +196,12 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "du-qian", family: "杜", given: "遷", nickname: "摸着天", age: 38,
     apt: A(56, 35, 45, 35, 40), val: V(40, 55, 25, 45, 50, 45, 50, 45),
-    skills: [], startNode: "liangshan", faction: "liangshan-band", fameOfficial: 0, fameOutlaw: 25, relations: [],
+    skills: ["ambush"], startNode: "liangshan", faction: "liangshan-band", fameOfficial: 0, fameOutlaw: 25, relations: [],
   },
   {
     id: "song-wan", family: "宋", given: "万", nickname: "雲裏金剛", age: 37,
     apt: A(55, 32, 44, 35, 38), val: V(42, 55, 22, 45, 52, 42, 48, 45),
-    skills: [], startNode: "liangshan", faction: "liangshan-band", fameOfficial: 0, fameOutlaw: 24, relations: [],
+    skills: ["ambush"], startNode: "liangshan", faction: "liangshan-band", fameOfficial: 0, fameOutlaw: 24, relations: [],
   },
   {
     id: "zhu-gui", family: "朱", given: "貴", nickname: "旱地忽律", age: 40,
@@ -218,7 +218,7 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "zhou-tong", family: "周", given: "通", nickname: "小霸王", age: 30,
     apt: A(62, 35, 46, 38, 35), val: V(25, 50, 38, 70, 72, 30, 62, 40),
-    skills: ["charge"], startNode: "taohua", faction: "taohua-band", fameOfficial: 0, fameOutlaw: 26,
+    skills: ["charge", "taunt"], startNode: "taohua", faction: "taohua-band", fameOfficial: 0, fameOutlaw: 26,
     relations: [{ target: "li-zhong", affinity: 55, trust: 58, bond: "colleague" }],
   },
   // ===== 東渓村の義士たち =====
@@ -250,7 +250,7 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "ruan-er", family: "阮", given: "小二", nickname: "立地太歳", age: 36,
     apt: A(70, 42, 55, 45, 55), val: V(62, 56, 30, 25, 72, 30, 58, 68),
-    skills: ["charge"], startNode: "dongxi", fameOfficial: 0, fameOutlaw: 40,
+    skills: ["charge", "ambush"], startNode: "dongxi", fameOfficial: 0, fameOutlaw: 40,
     relations: [
       { target: "ruan-wu", affinity: 75, trust: 80, bond: "kin" },
       { target: "ruan-qi", affinity: 75, trust: 80, bond: "kin" },
@@ -259,7 +259,7 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "ruan-wu", family: "阮", given: "小五", nickname: "短命二郎", age: 33,
     apt: A(72, 45, 52, 48, 55), val: V(60, 54, 32, 28, 75, 26, 60, 66),
-    skills: ["charge"], startNode: "dongxi", fameOfficial: 0, fameOutlaw: 42,
+    skills: ["charge", "ambush"], startNode: "dongxi", fameOfficial: 0, fameOutlaw: 42,
     relations: [{ target: "ruan-qi", affinity: 75, trust: 80, bond: "kin" }],
   },
   {
@@ -271,7 +271,7 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "lu-zhishen", family: "魯", given: "智深", nickname: "花和尚", age: 37,
     apt: A(90, 48, 62, 60, 42), val: V(94, 42, 28, 5, 72, 20, 55, 68),
-    skills: ["charge"], startNode: "kaifeng", fameOfficial: 10, fameOutlaw: 62,
+    skills: ["charge", "rockfall"], startNode: "kaifeng", fameOfficial: 10, fameOutlaw: 62,
     relations: [{ target: "lin-chong", affinity: 76, trust: 80, bond: "sworn" }],
   },
   {
@@ -282,7 +282,7 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "li-kui", family: "李", given: "逵", nickname: "黒旋風", age: 31,
     apt: A(88, 20, 42, 40, 30), val: V(58, 45, 20, 15, 98, 4, 55, 88),
-    skills: ["charge"], startNode: "jiangzhou", fameOfficial: 0, fameOutlaw: 48,
+    skills: ["charge", "rockfall"], startNode: "jiangzhou", fameOfficial: 0, fameOutlaw: 48,
     relations: [{ target: "song-jiang", affinity: 66, trust: 70 }],
   },
   {
@@ -310,7 +310,7 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "lu-junyi", family: "盧", given: "俊義", nickname: "玉麒麟", age: 39,
     apt: A(96, 62, 75, 58, 45), val: V(55, 65, 35, 45, 50, 55, 90, 45),
-    skills: ["charge"], startNode: "daming", fameOfficial: 50, fameOutlaw: 35,
+    skills: ["charge", "rockfall"], startNode: "daming", fameOfficial: 50, fameOutlaw: 35,
     relations: [{ target: "yan-qing", affinity: 78, trust: 85, bond: "master" }],
   },
   {
@@ -344,7 +344,7 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "deng-yuanjue", family: "鄧", given: "元覚", nickname: "宝光如来", age: 40,
     apt: A(90, 45, 60, 50, 40), val: V(40, 70, 40, 20, 80, 25, 65, 40),
-    skills: ["charge"], startNode: "hangzhou", faction: "fangla", fameOfficial: 0, fameOutlaw: 38, relations: [],
+    skills: ["charge", "sorcery"], startNode: "hangzhou", faction: "fangla", fameOfficial: 0, fameOutlaw: 38, relations: [],
   },
   {
     id: "pang-wanchun", family: "龐", given: "万春", nickname: "小養由基", age: 28,
@@ -360,7 +360,7 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "tian-hu", family: "田", given: "虎", nickname: "晋王", age: 39,
     apt: A(70, 50, 70, 72, 40), val: V(20, 35, 90, 70, 75, 30, 75, 40),
-    skills: ["charge"], startNode: "weisheng", faction: "tianhu", fameOfficial: 0, fameOutlaw: 50, relations: [],
+    skills: ["charge", "taunt"], startNode: "weisheng", faction: "tianhu", fameOfficial: 0, fameOutlaw: 50, relations: [],
   },
   {
     id: "qiao-daoqing", family: "喬", given: "道清", nickname: "幻魔君", age: 35,
@@ -377,17 +377,17 @@ const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   {
     id: "wang-qing", family: "王", given: "慶", nickname: "楚王", age: 37,
     apt: A(68, 55, 65, 65, 45), val: V(15, 30, 85, 75, 70, 35, 70, 35),
-    skills: ["charge"], startNode: "fangzhou", faction: "wangqing", fameOfficial: 0, fameOutlaw: 45, relations: [],
+    skills: ["charge", "taunt"], startNode: "fangzhou", faction: "wangqing", fameOfficial: 0, fameOutlaw: 45, relations: [],
   },
   {
     id: "du-xue", family: "杜", given: "壆", nickname: "険道神", age: 36,
     apt: A(90, 45, 60, 40, 40), val: V(25, 70, 40, 30, 75, 30, 65, 35),
-    skills: ["charge"], startNode: "fangzhou", faction: "wangqing", fameOfficial: 0, fameOutlaw: 34, relations: [],
+    skills: ["charge", "rockfall"], startNode: "fangzhou", faction: "wangqing", fameOfficial: 0, fameOutlaw: 34, relations: [],
   },
   {
     id: "feng-tai", family: "酆", given: "泰", nickname: "神駒子", age: 32,
     apt: A(80, 35, 52, 38, 35), val: V(20, 60, 35, 35, 85, 20, 60, 30),
-    skills: ["charge"], startNode: "junzhou", faction: "wangqing", fameOfficial: 0, fameOutlaw: 30, relations: [],
+    skills: ["charge", "ambush"], startNode: "junzhou", faction: "wangqing", fameOfficial: 0, fameOutlaw: 30, relations: [],
   },
 ];
 
@@ -427,6 +427,42 @@ const POP_GIVEN = [
 
 const ALL_SKILLS: SkillId[] = ["charge", "volley", "fire", "sorcery", "rockfall", "ambush", "taunt"];
 
+// 技は能力値と無縁に振らない。素質の傾きが役割の傾きになる（三國志IXの「得意分野」に相当。裁定R-20）
+function skillWeight(skill: SkillId, apt: Aptitudes): number {
+  switch (skill) {
+    case "charge":
+      return 1 + apt.valor / 30;
+    case "volley":
+      return 1 + apt.craft / 26;
+    case "fire":
+      return 1 + (apt.intellect + apt.craft) / 55;
+    case "sorcery":
+      return 1 + (apt.intellect + apt.craft) / 50;
+    case "rockfall":
+      return 1 + (apt.valor + apt.craft) / 55;
+    case "ambush":
+      return 1 + (apt.craft + apt.intellect) / 55;
+    case "taunt":
+      return 1 + (apt.charisma + apt.intellect) / 55;
+    default:
+      return 1;
+  }
+}
+
+function weightedSkillPick(id: string, salt: number, apt: Aptitudes, exclude: readonly SkillId[]): SkillId {
+  const pool = ALL_SKILLS.filter((s) => !exclude.includes(s));
+  const weights = pool.map((s) => skillWeight(s, apt));
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  let roll = popHash(`${id}:${salt}`) * total;
+  for (let i = 0; i < pool.length; i += 1) {
+    roll -= weights[i] as number;
+    if (roll <= 0) {
+      return pool[i] as SkillId;
+    }
+  }
+  return pool[pool.length - 1] as SkillId;
+}
+
 function cityPoolOf(ownerId: string): string[] {
   return PLACE_SEEDS
     .filter((p) => p.owner === ownerId && (p.kind === "capital" || p.kind === "county" || p.kind === "town" || p.kind === "manor"))
@@ -465,14 +501,19 @@ function makePopulace(): OfficerSeed[] {
       idx += 1;
       const family = popPick(id, 1, POP_SURNAMES);
       const given = popPick(id, 2, POP_GIVEN);
+      const apt = A(
+        popRange(id, 5, 25, 78),
+        popRange(id, 6, 22, 74),
+        popRange(id, 7, 24, 70),
+        popRange(id, 8, 20, 66),
+        popRange(id, 9, 18, 68),
+      );
+      // 技の数と中身は素質で決まる。得意分野が偏るほど、その道の技を引きやすい
       const skillRoll = popHash(`${id}:9`);
       const skillCount = skillRoll < 0.12 ? 2 : skillRoll < 0.62 ? 1 : 0;
       const skills: SkillId[] = [];
       for (let s = 0; s < skillCount; s += 1) {
-        const sk = popPick(id, 30 + s, ALL_SKILLS);
-        if (!skills.includes(sk)) {
-          skills.push(sk);
-        }
+        skills.push(weightedSkillPick(id, 30 + s, apt, skills));
       }
       const startNode = quota.cityPool.length > 0 ? popPick(id, 3, quota.cityPool) : "kaifeng";
       seeds.push({
@@ -480,13 +521,7 @@ function makePopulace(): OfficerSeed[] {
         family,
         given,
         age: popRange(id, 4, 20, 55),
-        apt: A(
-          popRange(id, 5, 25, 78),
-          popRange(id, 6, 22, 74),
-          popRange(id, 7, 24, 70),
-          popRange(id, 8, 20, 66),
-          popRange(id, 9, 18, 68),
-        ),
+        apt,
         val: V(
           popRange(id, 11, 15, 85),
           popRange(id, 12, 25, 85),

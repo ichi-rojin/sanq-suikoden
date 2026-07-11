@@ -577,21 +577,21 @@ export class WorldView {
     this.zoomNow = zoom;
     const counter = Math.min(2.4, Math.max(0.75, 1 / zoom));
     for (const [, sprite] of this.officerSprites) {
-      sprite.label.visible = zoom >= 1.15;
+      sprite.label.visible = zoom >= 0.58;
       sprite.root.scale.set(counter);
     }
     for (const [, sprite] of this.unitSprites) {
-      sprite.label.visible = zoom >= 1.0;
+      sprite.label.visible = zoom >= 0.5;
       sprite.root.scale.set(counter);
     }
     for (const [id, label] of this.placeLabels) {
       const place = this.world.places.get(id);
       const minor = place !== undefined && (place.kind === "pass" || place.kind === "port" || place.kind === "town");
-      label.visible = !minor || zoom >= 0.9;
+      label.visible = !minor || zoom >= 0.45;
       label.scale.set(counter);
     }
     for (const [, info] of this.placeInfos) {
-      info.visible = zoom >= 0.75;
+      info.visible = zoom >= 0.38;
       info.scale.set(counter);
     }
     for (const [, sprite] of this.armySprites) {
@@ -602,7 +602,7 @@ export class WorldView {
     }
     for (const [, mark] of this.battleMarks) {
       mark.scale.set(Math.min(2.4, Math.max(1, counter)));
-      mark.visible = zoom < 0.9;
+      mark.visible = zoom < 0.45;
     }
   }
 

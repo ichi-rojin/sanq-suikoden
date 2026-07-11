@@ -1,7 +1,18 @@
 // 責務: Viewerの見た目定義。セル寸法・勢力色・地形タイル/技の表示対応（描画専用、シムには影響しない）
 import { T } from "../src/grid";
 
-export const CELL = 8; // 1グリッドセルの描画ピクセル
+export const CELL = 16; // 1グリッドセルの描画ピクセル（Producer指示R-20: 視認性優先。シム側のグリッド密度は不変）
+
+// 技の日本語表記（情報ウインドウでの「得意技」表示に使う）
+export const SKILL_LABEL: Record<string, string> = {
+  charge: "突撃",
+  volley: "斉射",
+  fire: "火計",
+  sorcery: "妖術",
+  rockfall: "落石",
+  ambush: "伏兵",
+  taunt: "挑発",
+};
 
 // 初期勢力の旗色（勢力識別を最優先）
 const FIXED_FACTION_COLORS: Record<string, number> = {

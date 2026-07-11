@@ -28,17 +28,14 @@ import {
 
 const ARMY_SPEED = 0.75; // 兵站を引きずる軍の1日移動力
 const CONVOY_SPEED = 0.4; // 枷をはめられた護送の足取り
-const MAX_CONCURRENT_ARMIES = 3; // 一勢力が同時に出せる軍の数（複数の戦線を同時に持てる）
 const REINFORCE_RANGE = 44; // 友軍の戦場をこの距離まで感知し、駆けつけを検討する
 
+// 同時出兵数に固定上限は設けない（裁定R-20）。出せる軍の数は都市の兵站・空いた将校の頭数・
+// 経路の有無からlaunchArmy自身が資源として尽きるまで自然に決まる
 function membersOf(world: World, faction: Faction): Officer[] {
   return faction.members
     .map((id) => world.officers.get(id))
     .filter((o): o is Officer => o !== undefined && o.status !== "dead");
-}
-
-function armyCountOf(world: World, factionId: string): number {
-  return world.armies.reduce((n, a) => (a.factionId === factionId ? n + 1 : n), 0);
 }
 
 function fieldedMembers(world: World, faction: Faction): Officer[] {
@@ -228,7 +225,7 @@ function courtStrategy(world: World, faction: Faction, leader: Officer): void {
       return heat >= 50 && enemy !== undefined && enemy.fallenTick === undefined && enemy.cities.length > 0;
     })
     .sort((a, b) => b[1] - a[1])[0];
-  if (vendetta !== undefined && armyCountOf(world, faction.id) < MAX_CONCURRENT_ARMIES && rng.chance(0.45)) {
+  if (vendetta !== undefined && rng.chance(0.45)) {
     const enemy = world.factions.get(vendetta[0]);
     if (enemy !== undefined && factionStrength(world, faction) > factionStrength(world, enemy) * 1.15) {
       const weakest = enemy.cities
@@ -254,7 +251,6 @@ function courtStrategy(world: World, faction: Faction, leader: Officer): void {
   if (
     strongest !== undefined &&
     factionStrength(world, strongest) > 1400 &&
-    armyCountOf(world, faction.id) < MAX_CONCURRENT_ARMIES &&
     rng.chance(0.35)
   ) {
     faction.policy = "suppress";
@@ -283,7 +279,7 @@ function lordStrategy(world: World, faction: Faction, leader: Officer): void {
     .filter(([fid, heat]) => heat >= 40 && world.factions.get(fid)?.fallenTick === undefined)
     .sort((a, b) => b[1] - a[1]);
   const targetEntry = feuds[0];
-  if (targetEntry !== undefined && armyCountOf(world, faction.id) < MAX_CONCURRENT_ARMIES) {
+  if (targetEntry !== undefined) {
     const enemy = world.factions.get(targetEntry[0]);
     if (enemy !== undefined) {
       const targetPlace = enemy.cities[0] ?? enemy.loc;
@@ -299,10 +295,7 @@ function lordStrategy(world: World, faction: Faction, leader: Officer): void {
     }
   }
   // 野心と血気が領主を戦へ駆り立てる
-  if (
-    armyCountOf(world, faction.id) < MAX_CONCURRENT_ARMIES &&
-    rng.chance((leader.values.ambition + leader.values.aggression) / 350)
-  ) {
+  if (rng.chance((leader.values.ambition + leader.values.aggression) / 350)) {
     const adjacencies = faction.cities.flatMap((c) => neighborsOf(world, c));
     const candidates = adjacencies
       .map((pid) => world.places.get(pid))
@@ -340,7 +333,6 @@ function outlawStrategy(world: World, faction: Faction, leader: Officer): void {
     weakest !== undefined &&
     factionStrength(world, faction) > (weakest.garrison + weakest.defense * 8) * 1.35 &&
     leader.values.ambition + leader.values.aggression >= 90 &&
-    armyCountOf(world, faction.id) < MAX_CONCURRENT_ARMIES &&
     rng.chance(0.5)
   ) {
     faction.policy = "expand";
