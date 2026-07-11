@@ -145,6 +145,45 @@ async function boot(): Promise<void> {
     }
   });
 
+  // ---- レーダーマップ（SAN9の常時ミニマップに相当。勢力色の拠点とカメラ枠、クリックでジャンプ） ----
+  const minimap = el<HTMLCanvasElement>("minimap");
+  const MM = 176;
+  minimap.width = MM;
+  minimap.height = Math.round((MM * WORLD_PX_H) / WORLD_PX_W);
+  const mmCtx = minimap.getContext("2d");
+  const mmScale = MM / WORLD_PX_W;
+  const renderMinimap = (): void => {
+    if (mmCtx === null) {
+      return;
+    }
+    mmCtx.drawImage(terrain.canvas, 0, 0, minimap.width, minimap.height);
+    for (const place of world.places.values()) {
+      if (place.kind === "pass" || place.kind === "port") {
+        continue;
+      }
+      mmCtx.fillStyle = colorHex(factionColor(place.owner));
+      const size = place.kind === "capital" ? 4 : 3;
+      mmCtx.fillRect(place.gridX * CELL * mmScale - size / 2, place.gridY * CELL * mmScale - size / 2, size, size);
+    }
+    mmCtx.fillStyle = "#ffffff";
+    for (const army of world.armies) {
+      const pos = worldView.entityPosition("army", army.id) ?? worldView.pos(army.loc);
+      mmCtx.fillRect(pos.x * mmScale - 1, pos.y * mmScale - 1, 2, 2);
+    }
+    // 現在のカメラ視界
+    const vw = (app.screen.width / camera.zoom) * mmScale;
+    const vh = (app.screen.height / camera.zoom) * mmScale;
+    mmCtx.strokeStyle = "rgba(240,230,210,0.85)";
+    mmCtx.lineWidth = 1;
+    mmCtx.strokeRect(camera.x * mmScale - vw / 2, camera.y * mmScale - vh / 2, vw, vh);
+  };
+  minimap.addEventListener("pointerdown", (ev) => {
+    const rect = minimap.getBoundingClientRect();
+    follow = undefined;
+    camera.x = ((ev.clientX - rect.left) / rect.width) * WORLD_PX_W;
+    camera.y = ((ev.clientY - rect.top) / rect.height) * WORLD_PX_H;
+  });
+
   // ---- 実況ログ ----
   const logBox = el<HTMLDivElement>("log");
   const pushLog = (tick: number, kind: string, text: string): void => {
@@ -543,6 +582,7 @@ async function boot(): Promise<void> {
       }
     }
     applyCamera();
+    renderMinimap();
 
     if (paused) {
       return;

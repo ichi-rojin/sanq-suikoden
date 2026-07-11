@@ -1,12 +1,12 @@
 // 責務: 中国全土マップ（世界は三國志IX、物語は水滸伝）。グリッド座標・拠点71・街道網・地勢・初期勢力のデータ
-// グリッドはSAN9マップ画像からの推定（docs/impl/proto/san9-map-analysis.md）。確定情報が得られた場合はGRID_W/Hのみ差し替える
+// グリッドはWeb調査で確認したSAN9の内部構造（スクエア200×200、San9ME解析。docs/impl/proto/san9-map-analysis.md §1）
 import type { Edge, FactionKind, PlaceKind, PolicyKind } from "../src/model";
 
-// 執筆座標系（分析の推定グリッドと同一）
+// 執筆座標系（画像分析時の推定グリッド。gx/gyで実グリッドへ再スケールされる）
 const AUTHOR_W = 216;
 const AUTHOR_H = 184;
-export const GRID_W = 216;
-export const GRID_H = 184;
+export const GRID_W = 200;
+export const GRID_H = 200;
 
 const gx = (x: number): number => Math.round((x * GRID_W) / AUTHOR_W);
 const gy = (y: number): number => Math.round((y * GRID_H) / AUTHOR_H);
@@ -189,6 +189,8 @@ export const PLACE_SEEDS: PlaceSeed[] = [
   port("hanyang", "漢陽渡", 114, 120),
   port("xunyang", "潯陽渡", 132, 116),
   port("mingzhou", "明州港", 174, 128),
+  port("dongting", "洞庭渡", 107, 128),
+  port("qichun", "蘄春渡", 126, 121),
 ];
 
 const E = (from: string, to: string): Edge => ({ from, to });
@@ -225,8 +227,8 @@ export const EDGE_SEEDS: Edge[] = [
   // 長江中流・荊楚
   E("nanyang", "xiangyang"), E("xiangyang", "jiangling"), E("xiangyang", "junzhou"),
   E("junzhou", "fangzhou"), E("junzhou", "hanzhong"),
-  E("jiangling", "hanyang"), E("hanyang", "ezhou"), E("ezhou", "jiangzhou"),
-  E("jiangzhou", "hongzhou"), E("jiangling", "tanzhou"),
+  E("jiangling", "hanyang"), E("hanyang", "ezhou"), E("ezhou", "qichun"), E("qichun", "jiangzhou"),
+  E("jiangzhou", "hongzhou"), E("jiangling", "dongting"), E("dongting", "tanzhou"),
   // 巴蜀
   E("changan", "dasan"), E("dasan", "hanzhong"), E("hanzhong", "jianmen"),
   E("jianmen", "zizhou"), E("zizhou", "chengdu"), E("zizhou", "yuzhou"),
