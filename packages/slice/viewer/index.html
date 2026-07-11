@@ -61,6 +61,23 @@
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-thumb { background: #4a3d28; }
 
+    /* 小窓ドラマ: 世界の中の一幕へカメラが寄る。開いている間も世界は止まらない */
+    #drama { position: absolute; right: 12px; bottom: 12px; width: 300px; z-index: 8;
+      background: rgba(16,12,8,0.94); border: 2px solid #8a744e; border-radius: 5px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.7); padding: 10px 12px; }
+    .drama-head { display: flex; justify-content: space-between; align-items: center; gap: 6px;
+      border-bottom: 1px solid #4a3d28; padding-bottom: 5px; margin-bottom: 6px; }
+    .drama-title { font-size: 13px; font-weight: 700; color: #ffd76a; }
+    .drama-btns { display: flex; gap: 4px; }
+    .drama-btns button { font-size: 10px; padding: 1px 6px; }
+    .drama-cast { font-size: 11px; color: #cdb98f; margin-bottom: 6px; }
+    .drama-lines { min-height: 60px; max-height: 130px; overflow-y: auto; }
+    .drama-line { font-size: 12px; line-height: 1.55; color: #e8dcc0; margin-bottom: 5px;
+      animation: dramain 0.4s ease-out; }
+    .drama-speaker { color: #f0c96a; margin-right: 6px; font-weight: 700; }
+    .drama-speaker::after { content: "──"; color: #8a7c60; margin-left: 3px; }
+    @keyframes dramain { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+
     #toasts { position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
       display: flex; flex-direction: column; gap: 6px; z-index: 10; pointer-events: none; }
     .toast { background: rgba(20,16,10,0.92); border: 1px solid #8a744e; color: #f3e3bd;
@@ -97,6 +114,17 @@
     <div id="stage">
       <div id="toasts"></div>
       <canvas id="minimap"></canvas>
+      <div id="drama">
+        <div class="drama-head">
+          <span class="drama-title">──</span>
+          <span class="drama-btns">
+            <button class="drama-focus">寄る</button>
+            <button class="drama-close">×</button>
+          </span>
+        </div>
+        <div class="drama-cast"></div>
+        <div class="drama-lines"></div>
+      </div>
     </div>
     <aside id="side">
       <div id="info"></div>

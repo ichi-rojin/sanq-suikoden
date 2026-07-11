@@ -1,4 +1,4 @@
-// 責務: Viewerの合成根。ブラウザ内でシミュレーションを回し、タイル地形・自由カメラ・マップ上合戦・情報パネル群へ結線する
+// 責務: Viewerの合成根。ブラウザ内で日次シミュレーションを回し、タイル世界・自由カメラ・世界戦場・小窓ドラマ・情報パネル群へ結線する
 import { Application, Container, Sprite, Texture } from "pixi.js";
 import { OFFICER_SEEDS } from "../data/officers.data";
 import { createNameRegistry, narrateEvent, storyTitle } from "../data/text.data";
@@ -15,23 +15,25 @@ import {
 } from "../data/world.data";
 import { compileStories } from "../src/chronicle";
 import type { Story } from "../src/chronicle";
-import type { BattleReplay, Officer, World, WorldEvent } from "../src/model";
-import { livingOfficers, monthOf, yearOf } from "../src/model";
-import { buildWorld, stepMonth } from "../src/sim";
-import { BattleMapView } from "./battle-view";
-import { buildTerrain } from "./terrain";
+import { collectDramas } from "../src/drama";
+import type { Officer, World, WorldEvent } from "../src/model";
+import { armyTroops, dayOf, livingOfficers, monthOf, placePos, yearOf } from "../src/model";
+import { buildWorld, stepDay } from "../src/sim";
+import { DramaView } from "./drama-view";
+import { buildTerrainLayer } from "./terrain";
 import { CELL, SKILL_POP, factionColor, logClassOf } from "./theme";
 import { WorldView } from "./world-view";
 
-const BASE_MONTH_MS = 2600;
+const BASE_DAY_MS = 300; // ×1速度の1日。1ヶ月≒9秒（SAN9の旬進行の距離感）
 const LOG_LIMIT = 160;
 const WORLD_PX_W = GRID_W * CELL;
 const WORLD_PX_H = GRID_H * CELL;
 
-// 合戦ログへ流す盤上の現象
+// 実況ログへ流す盤上の現象
 const CLASH_LOGGED = new Set([
   "clash.stray", "clash.fire", "clash.sorcery", "clash.rockfall", "clash.duel",
   "clash.duel-respect", "clash.rescue", "clash.fall", "clash.capture", "clash.drown", "clash.taunt",
+  "clash.ambush",
 ]);
 
 function el<T extends HTMLElement>(id: string): T {
@@ -51,13 +53,19 @@ async function boot(): Promise<void> {
   const seed = Number(params.get("seed") ?? "7");
   const initialZoom = Number(params.get("z") ?? "1");
   const jumpParam = params.get("jump");
+  const initialSpeed = Number(params.get("speed") ?? "1");
 
   const names = createNameRegistry(OFFICER_SEEDS, FACTION_SEEDS, PLACE_SEEDS);
   const world: World = buildWorld(seed, {
+    gridW: GRID_W,
+    gridH: GRID_H,
     officers: OFFICER_SEEDS,
     factions: FACTION_SEEDS,
     places: PLACE_SEEDS,
     edges: EDGE_SEEDS,
+    geo: GEO_FEATURES,
+    coast: COAST_POINTS,
+    desert: DESERT_POINTS,
     exileDest: EXILE_DESTINATION,
   });
   const eventIndex = new Map<string, WorldEvent>();
@@ -68,16 +76,17 @@ async function boot(): Promise<void> {
   await app.init({ resizeTo: stage, background: 0x152a40, antialias: true });
   stage.appendChild(app.canvas);
 
-  // ---- 世界レイヤ（地形→実体→合戦） ----
-  const terrain = buildTerrain(GRID_W, GRID_H, PLACE_SEEDS, EDGE_SEEDS, GEO_FEATURES, COAST_POINTS, DESERT_POINTS);
+  // ---- 世界レイヤ（地形→実体） ----
+  const terrain = buildTerrainLayer(world);
   const worldRoot = new Container();
-  worldRoot.addChild(new Sprite(Texture.from(terrain.canvas)));
-  const worldView = new WorldView(world, names, terrain.roadPaths);
+  const terrainTexture = Texture.from(terrain.canvas);
+  worldRoot.addChild(new Sprite(terrainTexture));
+  const worldView = new WorldView(world, names);
   worldRoot.addChild(worldView.root);
-  const battleView = new BattleMapView(names);
-  battleView.connectEvents(eventOf);
-  worldRoot.addChild(battleView.root);
   app.stage.addChild(worldRoot);
+
+  // ---- 小窓ドラマ（世界は止めない。カメラが寄るだけ） ----
+  const dramaView = new DramaView(el<HTMLDivElement>("drama"), names);
 
   // ---- カメラ（自由スクロール・ズーム・追跡） ----
   const kaifengSeed = PLACE_SEEDS.find((p) => p.id === "kaifeng");
@@ -90,6 +99,13 @@ async function boot(): Promise<void> {
   let follow: { kind: "officer" | "place" | "army" | "battle"; id: string } | undefined;
   let autoBattleJump = jumpParam !== "0";
 
+  dramaView.onFocus = (x, y) => {
+    follow = undefined;
+    camera.x = x * CELL;
+    camera.y = y * CELL;
+    camera.targetZoom = Math.max(camera.targetZoom, 1.8);
+  };
+
   const applyCamera = (): void => {
     camera.zoom += (camera.targetZoom - camera.zoom) * 0.12;
     camera.x = Math.max(0, Math.min(WORLD_PX_W, camera.x));
@@ -98,7 +114,6 @@ async function boot(): Promise<void> {
     worldRoot.x = app.screen.width / 2 - camera.x * camera.zoom;
     worldRoot.y = app.screen.height / 2 - camera.y * camera.zoom;
     worldView.setZoom(camera.zoom);
-    battleView.setZoom(camera.zoom);
   };
 
   // ドラッグでスクロール（実体クリックと区別するため移動量で判定）
@@ -145,7 +160,7 @@ async function boot(): Promise<void> {
     }
   });
 
-  // ---- レーダーマップ（SAN9の常時ミニマップに相当。勢力色の拠点とカメラ枠、クリックでジャンプ） ----
+  // ---- レーダーマップ（SAN9の常時ミニマップ。勢力色の拠点・軍・戦場とカメラ枠、クリックでジャンプ） ----
   const minimap = el<HTMLCanvasElement>("minimap");
   const MM = 176;
   minimap.width = MM;
@@ -167,8 +182,11 @@ async function boot(): Promise<void> {
     }
     mmCtx.fillStyle = "#ffffff";
     for (const army of world.armies) {
-      const pos = worldView.entityPosition("army", army.id) ?? worldView.pos(army.loc);
-      mmCtx.fillRect(pos.x * mmScale - 1, pos.y * mmScale - 1, 2, 2);
+      mmCtx.fillRect(army.x * CELL * mmScale - 1, army.y * CELL * mmScale - 1, 2, 2);
+    }
+    mmCtx.fillStyle = "#ff5544";
+    for (const battle of world.battles) {
+      mmCtx.fillRect(battle.x * CELL * mmScale - 1.5, battle.y * CELL * mmScale - 1.5, 3, 3);
     }
     // 現在のカメラ視界
     const vw = (app.screen.width / camera.zoom) * mmScale;
@@ -239,24 +257,30 @@ async function boot(): Promise<void> {
   };
   const refreshWars = (): void => {
     warsBox.replaceChildren();
-    if (world.armies.length === 0 && !battleView.playing) {
+    if (world.armies.length === 0 && world.battles.length === 0) {
       const idle = document.createElement("div");
       idle.className = "dim";
       idle.textContent = "諸勢力、兵を動かさず";
       warsBox.appendChild(idle);
       return;
     }
-    for (const army of world.armies) {
-      const row = document.createElement("div");
-      row.className = "wrow";
-      row.textContent = `${names.faction(army.factionId)}軍${army.troops}、${names.place(army.target)}へ行軍中`;
-      row.style.borderLeftColor = colorHex(factionColor(army.factionId));
-      warsBox.appendChild(row);
-    }
-    if (battleView.playing) {
+    for (const battle of world.battles) {
       const row = document.createElement("div");
       row.className = "wrow fighting";
-      row.textContent = "交戦中──";
+      const who = battle.factions.map((f) => names.faction(f)).join(" × ");
+      row.textContent = battle.placeId !== undefined
+        ? `攻城戦 ${names.place(battle.placeId)}──${who}`
+        : `野戦──${who}`;
+      warsBox.appendChild(row);
+    }
+    for (const army of world.armies) {
+      if (army.battleId !== undefined || army.state === "fight") {
+        continue;
+      }
+      const row = document.createElement("div");
+      row.className = "wrow";
+      row.textContent = `${names.faction(army.factionId)}軍${armyTroops(army)}、${names.place(army.target)}へ行軍中`;
+      row.style.borderLeftColor = colorHex(factionColor(army.factionId));
       warsBox.appendChild(row);
     }
   };
@@ -304,7 +328,10 @@ async function boot(): Promise<void> {
     const statusLabel =
       officer.status === "serving" ? "仕官" : officer.status === "prisoner" ? "囚" :
       officer.status === "dead" ? "故人" : "放浪";
-    lines.push(`${faction}／${statusLabel}／${officer.age}歳　今: ${names.place(officer.loc)}`);
+    const where = officer.journey !== undefined
+      ? `${names.place(officer.journey.dest)}へ旅の途上`
+      : names.place(officer.loc);
+    lines.push(`${faction}／${statusLabel}／${officer.age}歳　今: ${where}`);
     const a = officer.aptitudes;
     lines.push(`武${Math.round(a.valor)} 知${Math.round(a.intellect)} 統${Math.round(a.leadership)} 魅${Math.round(a.charisma)} 術${Math.round(a.craft)}`);
     const sworn = [...officer.rel.entries()].filter(([, r]) => r.bond === "sworn").map(([id]) => names.officerShort(id));
@@ -353,9 +380,9 @@ async function boot(): Promise<void> {
       title.textContent = names.place(place.id);
       const owner = place.owner !== undefined ? names.faction(place.owner) : "主なし";
       const rows = [
-        `${owner}　兵${Math.floor(place.garrison)}　民心${Math.floor(place.sentiment)}　富${Math.floor(place.wealth)}${place.devastation >= 5 ? `　戦禍${Math.floor(place.devastation)}` : ""}`,
+        `${owner}　兵${Math.floor(place.garrison)}　民心${Math.floor(place.sentiment)}　富${Math.floor(place.wealth)}${place.devastation >= 5 ? `　戦禍${Math.floor(place.devastation)}` : ""}${place.gateBroken ? "　城門破壊" : ""}`,
       ];
-      const here = livingOfficers(world).filter((o) => o.loc === place.id && o.status !== "prisoner");
+      const here = livingOfficers(world).filter((o) => o.loc === place.id && o.journey === undefined && o.status !== "prisoner");
       if (here.length > 0) {
         rows.push(`在: ${here.slice(0, 10).map((o) => names.officerShort(o.id)).join("、")}${here.length > 10 ? " 他" : ""}`);
       }
@@ -372,7 +399,8 @@ async function boot(): Promise<void> {
       }
       title.textContent = `${names.faction(army.factionId)}軍`;
       const div = document.createElement("div");
-      div.textContent = `兵${army.troops}　${names.place(army.target)}へ進軍中　将: ${army.officers.map((o) => names.officerShort(o)).join("、")}`;
+      const doing = army.battleId !== undefined || army.state === "fight" ? "交戦中" : `${names.place(army.target)}へ進軍中`;
+      div.textContent = `兵${armyTroops(army)}　${doing}　将: ${army.units.map((u) => names.officerShort(u.officerId)).join("、")}`;
       body.appendChild(div);
     }
     const followBtn = document.createElement("button");
@@ -399,58 +427,64 @@ async function boot(): Promise<void> {
   const dateEl = el<HTMLSpanElement>("date");
   const popEl = el<HTMLSpanElement>("pop");
   const refreshHeader = (): void => {
-    dateEl.textContent = `${names.yearLabel(yearOf(world.tick))} ${names.monthLabel(monthOf(world.tick))}`;
-    popEl.textContent = `存命武将 ${livingOfficers(world).length}名`;
+    const day = dayOf(world.tick);
+    const phase = day <= 10 ? "上旬" : day <= 20 ? "中旬" : "下旬";
+    dateEl.textContent = `${names.yearLabel(yearOf(world.tick))} ${names.monthLabel(monthOf(world.tick))}${phase}`;
+    popEl.textContent = `存命武将 ${livingOfficers(world).length}名　燃焼${world.grid.fires.size}地`;
   };
 
-  // ---- 合戦の現象 → ポップとログ ----
-  battleView.onFrameEvent = (event, x, y) => {
-    const pop = SKILL_POP[event.kind];
-    if (pop !== undefined) {
-      worldView.floatText(x + (Math.abs(event.id.length * 7) % 40) - 20, y - 30, pop.label, pop.color);
-    }
-    if (CLASH_LOGGED.has(event.kind)) {
-      pushLog(event.tick, event.kind, narrateEvent(event, names));
-    }
-  };
-
-  // ---- 月次tick ----
-  const battleQueue: BattleReplay[] = [];
+  // ---- 日次tick ----
   let paused = false;
-  let speed = 1;
+  let speed = Math.max(0.5, Math.min(8, initialSpeed));
   let acc = 0;
-  const monthMs = (): number => BASE_MONTH_MS / speed;
+  const dayMs = (): number => BASE_DAY_MS / speed;
+
+  const eventAtPx = (event: WorldEvent): { x: number; y: number } | undefined => {
+    if (event.at !== undefined) {
+      return { x: event.at.x * CELL, y: event.at.y * CELL };
+    }
+    if (event.loc !== undefined) {
+      const p = placePos(world, event.loc);
+      return { x: p.x * CELL, y: p.y * CELL };
+    }
+    return undefined;
+  };
 
   const mapFx = (event: WorldEvent): void => {
-    if (event.loc === undefined) {
+    const at = event.at ?? (event.loc !== undefined ? placePos(world, event.loc) : undefined);
+    if (at === undefined) {
       return;
     }
     switch (event.kind) {
       case "war.plunder":
       case "war.raze":
-        worldView.fire(event.loc);
+        worldView.fireBurstAt(at.x, at.y);
         break;
       case "war.city-fall":
-        worldView.pulse(event.loc, 0xffd76a);
+        worldView.pulseAt(at.x, at.y, 0xffd76a);
+        break;
+      case "war.encounter":
+      case "war.siege":
+        worldView.pulseAt(at.x, at.y, 0xff4433);
         break;
       case "life.execute":
       case "life.revenge":
-        worldView.pulse(event.loc, 0xcc2222);
+        worldView.pulseAt(at.x, at.y, 0xcc2222);
         break;
       case "faction.lair":
       case "faction.found":
       case "faction.rise":
-        worldView.pulse(event.loc, 0x7ddc8f);
+        worldView.pulseAt(at.x, at.y, 0x7ddc8f);
         break;
       case "life.oath":
-        worldView.pulse(event.loc, 0xf0c96a);
+        worldView.pulseAt(at.x, at.y, 0xf0c96a);
         break;
       case "agit.disaster":
-        worldView.pulse(event.loc, 0x9aa7b5);
+        worldView.pulseAt(at.x, at.y, 0x9aa7b5);
         break;
       case "life.rescue-convoy":
       case "life.jailbreak":
-        worldView.pulse(event.loc, 0xff9a3d);
+        worldView.pulseAt(at.x, at.y, 0xff9a3d);
         break;
       default:
         break;
@@ -471,43 +505,59 @@ async function boot(): Promise<void> {
       case "war.city-fall":
         showToast(`${event.loc !== undefined ? names.place(event.loc) : ""} 陥落`, "fall");
         break;
+      case "war.gate-breach":
+        showToast(`${event.loc !== undefined ? names.place(event.loc) : ""}の城門が破られた!`, "fall");
+        break;
       default:
         break;
     }
   };
 
   const step = (): void => {
-    const prevLocs = new Map<string, string>();
-    for (const officer of world.officers.values()) {
-      prevLocs.set(officer.id, officer.loc);
-    }
-    worldView.armyPrevLocs(prevLocs);
     const evStart = world.events.length;
-    const rpStart = world.replays.length;
+    stepDay(world, names);
+    const newEvents = world.events.slice(evStart);
+    const newDramas = collectDramas(world, newEvents);
 
-    stepMonth(world, names);
-
-    for (const event of world.events.slice(evStart)) {
+    for (const event of newEvents) {
       eventIndex.set(event.id, event);
       mapFx(event);
       bigNews(event);
-      // 初対面と小宴は地図の光のみ（ログの主役は事件）
+      // 兵法発動ポップ（SAN9の癖になる瞬間）
+      const pop = SKILL_POP[event.kind];
+      const px = eventAtPx(event);
+      if (pop !== undefined && px !== undefined) {
+        worldView.floatText(px.x + (Math.abs(event.id.length * 7) % 40) - 20, px.y - 14, pop.label, pop.color);
+      }
+      // ログ: 盤上の細かな現象は主要なものだけ、初対面と小宴は地図の光のみ
       const smallFeast = event.kind === "life.feast" && event.actors.length < 4;
-      if (!event.kind.startsWith("clash.") && event.kind !== "life.meet" && !smallFeast) {
+      if (event.kind.startsWith("clash.")) {
+        if (CLASH_LOGGED.has(event.kind)) {
+          pushLog(event.tick, event.kind, narrateEvent(event, names));
+        }
+      } else if (event.kind !== "life.meet" && !smallFeast) {
         pushLog(event.tick, event.kind, narrateEvent(event, names));
       }
     }
-    for (const replay of world.replays.slice(rpStart)) {
-      battleQueue.push(replay);
+    for (const drama of newDramas) {
+      dramaView.enqueue(drama);
     }
-    worldView.applyTick(prevLocs, monthMs());
+    // 地形の傷（延焼跡・瓦礫・城門）を差分再描画
+    if (world.grid.dirty.length > 0) {
+      terrain.repaint(world.grid.dirty);
+      world.grid.dirty.length = 0;
+      terrainTexture.source.update();
+    }
+    worldView.applyTick();
     refreshHeader();
-    refreshFactions();
-    refreshWars();
-    if (world.tick % 6 === 0) {
+    if (world.tick % 5 === 0) {
+      refreshFactions();
+      refreshWars();
+    }
+    if (world.tick % 60 === 0) {
       refreshStories();
     }
-    if (selected !== undefined) {
+    if (selected !== undefined && world.tick % 5 === 0) {
       renderInfo();
     }
   };
@@ -551,33 +601,30 @@ async function boot(): Promise<void> {
   applyCamera();
 
   // ---- 主ループ ----
+  const knownBattles = new Set<string>();
   app.ticker.add((ticker) => {
     const dms = ticker.deltaMS;
     worldView.update(dms);
-    battleView.update(dms, monthMs());
+    dramaView.update(dms);
 
-    // 合戦の開幕: キューから盤面へ
-    const nextBattle = battleQueue.shift();
-    if (nextBattle !== undefined) {
-      const at = worldView.pos(nextBattle.loc);
-      battleView.play(nextBattle, at.x, at.y);
-      worldView.pulse(nextBattle.loc, 0xff4433);
-      if (autoBattleJump) {
-        follow = { kind: "battle", id: nextBattle.id };
-        camera.targetZoom = Math.max(1.5, camera.targetZoom);
+    // 新しい戦場が開いたら追跡カメラを寄せる
+    for (const battle of world.battles) {
+      if (!knownBattles.has(battle.id)) {
+        knownBattles.add(battle.id);
+        if (autoBattleJump) {
+          follow = { kind: "battle", id: battle.id };
+          camera.targetZoom = Math.max(1.5, camera.targetZoom);
+        }
       }
     }
 
     // 追跡カメラ
     if (follow !== undefined) {
-      const pos =
-        follow.kind === "battle"
-          ? battleView.primaryPosition()
-          : worldView.entityPosition(follow.kind, follow.id);
+      const pos = worldView.entityPosition(follow.kind, follow.id);
       if (pos !== undefined) {
         camera.x += (pos.x - camera.x) * 0.08;
         camera.y += (pos.y - camera.y) * 0.08;
-      } else if (follow.kind === "battle" && !battleView.playing) {
+      } else if (follow.kind === "battle") {
         follow = undefined;
       }
     }
@@ -588,9 +635,14 @@ async function boot(): Promise<void> {
       return;
     }
     acc += dms;
-    if (acc >= monthMs()) {
-      acc = 0;
+    let burst = 0;
+    while (acc >= dayMs() && burst < 4) {
+      acc -= dayMs();
+      burst += 1;
       step();
+    }
+    if (burst >= 4) {
+      acc = 0; // 追い付けない分は切り捨てる（描画を犠牲にしない）
     }
   });
 }

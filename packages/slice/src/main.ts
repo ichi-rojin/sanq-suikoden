@@ -2,15 +2,25 @@
 import { writeFileSync } from "node:fs";
 import { OFFICER_SEEDS } from "../data/officers.data";
 import { createNameRegistry, narrateEvent, storyTitle } from "../data/text.data";
-import { EDGE_SEEDS, EXILE_DESTINATION, FACTION_SEEDS, PLACE_SEEDS } from "../data/world.data";
+import {
+  COAST_POINTS,
+  DESERT_POINTS,
+  EDGE_SEEDS,
+  EXILE_DESTINATION,
+  FACTION_SEEDS,
+  GEO_FEATURES,
+  GRID_H,
+  GRID_W,
+  PLACE_SEEDS,
+} from "../data/world.data";
 import { compileStories } from "./chronicle";
 import { livingOfficers } from "./model";
 import {
   type TextKit,
   renderAnnals,
   renderBiography,
+  renderCampaign,
   renderRelations,
-  renderReplay,
   renderStory,
   renderStoryShelf,
   renderWorldMap,
@@ -81,21 +91,27 @@ function main(): void {
   };
 
   const world = buildWorld(args.seed, {
+    gridW: GRID_W,
+    gridH: GRID_H,
     officers: OFFICER_SEEDS,
     factions: FACTION_SEEDS,
     places: PLACE_SEEDS,
     edges: EDGE_SEEDS,
+    geo: GEO_FEATURES,
+    coast: COAST_POINTS,
+    desert: DESERT_POINTS,
     exileDest: EXILE_DESTINATION,
   });
 
   runYears(world, names, args.years);
   const stories = compileStories(world);
+  const campaigns = world.events.filter((e) => e.kind === "war.encounter" || e.kind === "war.siege").length;
 
   const out: string[] = [];
   out.push("═══════════════════════════════════════");
-  out.push(" 縮小世界シミュレーション（Vertical Slice）");
+  out.push(" 縮小世界シミュレーション（三國志IX型 全国戦場TileMap）");
   out.push(` 期間: ${args.years}年　シード: ${args.seed}　記録された出来事: ${world.events.length}件`);
-  out.push(` 合戦: ${world.replays.length}回　編まれた物語: ${stories.length}篇`);
+  out.push(` 戦役: ${campaigns}回　編まれた物語: ${stories.length}篇`);
   out.push("═══════════════════════════════════════");
 
   out.push(...renderAnnals(world, kit));
@@ -126,16 +142,13 @@ function main(): void {
   out.push(...renderRelations(world, kit));
 
   if (args.replay !== undefined) {
-    const replay = world.replays[args.replay];
-    if (replay !== undefined) {
-      out.push(...renderReplay(replay, world, kit));
-    }
+    out.push(...renderCampaign(world, args.replay, kit));
   }
 
   out.push(
     "",
     `（存命の武将: ${livingOfficers(world).length}名／没した武将: ${world.officers.size - livingOfficers(world).length}名）`,
-    "使い方: --years N --seed N --stories N --biography 名前 --replay 番号（合戦絵巻を表示） --json 出力先.json",
+    "使い方: --years N --seed N --stories N --biography 名前 --replay 番号（戦役絵巻を表示） --json 出力先.json",
   );
 
   process.stdout.write(`${out.join("\n")}\n`);
@@ -145,7 +158,7 @@ function main(): void {
       tick: world.tick,
       events: world.events,
       stories: stories.map((s) => ({ ...s, events: s.events.map((e) => e.id) })),
-      replays: world.replays,
+      dramas: world.dramas,
     };
     writeFileSync(args.json, JSON.stringify(dump, null, 2), "utf-8");
   }

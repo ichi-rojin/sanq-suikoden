@@ -17,6 +17,11 @@ const BASE_SIG: Record<string, number> = {
   "faction.split": 78,
   "war.declare": 65,
   "war.battle": 75,
+  "war.encounter": 70,
+  "war.siege": 66,
+  "war.gate-breach": 58,
+  "war.join": 64,
+  "clash.flee": 26,
   "war.city-fall": 92,
   "war.repelled": 70,
   "war.plunder": 68,
@@ -64,6 +69,7 @@ const BASE_SIG: Record<string, number> = {
 export interface EmitInput {
   kind: string;
   loc?: PlaceId;
+  at?: { x: number; y: number }; // 世界タイル上の発生地点
   actors?: OfficerId[];
   factions?: FactionId[];
   causes?: EventId[];
@@ -84,6 +90,7 @@ export function emit(world: World, input: EmitInput): WorldEvent {
     data: input.data ?? {},
     sig: input.sig ?? BASE_SIG[input.kind] ?? 30,
     ...(input.loc !== undefined ? { loc: input.loc } : {}),
+    ...(input.at !== undefined ? { at: { x: input.at.x, y: input.at.y } } : {}),
   };
   world.events.push(event);
   applyEventEmotions(world, event);

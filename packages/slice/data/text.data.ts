@@ -115,6 +115,16 @@ export function narrateEvent(e: WorldEvent, n: NameRegistry): string {
       return `${fac(0)}、${n.place(s("target"))}へ兵を発す。総勢${String(d["troops"] ?? "数千")}。`;
     case "war.battle":
       return `${loc}に戦端開く。寄せ手は${fac(0)}、守るは${fac(1)}。`;
+    case "war.encounter":
+      return `${fac(0)}と${fac(1)}の軍勢、野で行き会い、そのまま干戈に及ぶ。`;
+    case "war.siege":
+      return `${fac(0)}の軍、${loc}の城下に迫り、攻囲の陣を布く。`;
+    case "war.gate-breach":
+      return `${loc}の城門、ついに破られる! 寄せ手が城内へ雪崩れ込む。`;
+    case "war.join":
+      return `戦場に新手あり! ${fac(0)}の軍が横合いから乱入し、戦は三つ巴の様相を呈す。`;
+    case "clash.flee":
+      return `${off("officer")}、戦場を離脱して落ち延びる。`;
     case "war.city-fall":
       return `${loc}、陥落。${fac(0)}の旗が城頭に翻る。`;
     case "war.repelled":
@@ -137,6 +147,9 @@ export function narrateEvent(e: WorldEvent, n: NameRegistry): string {
     case "clash.volley":
       return `${off("shooter")}の号令一下、矢の雨が空を黒く染めて降り注ぐ。`;
     case "clash.stray": {
+      if (d["victimSide"] === "bystander") {
+        return `戦場のかたわらを行く${off("victim")}に流れ矢が突き立つ。とんだ巻き添えである。`;
+      }
       const side = d["victimSide"] === "ally" ? "——放ったのは味方の" : "——放ったのは";
       return `流れ矢あり! ${off("victim")}の肩口に突き立つ。${side}${off("culprit")}であった。`;
     }
@@ -222,10 +235,63 @@ export function narrateEvent(e: WorldEvent, n: NameRegistry): string {
     case "life.illness-death":
       return `${off("officer")}、病を得て世を去る。享年${kanjiNumber(typeof d["age"] === "number" ? (d["age"] as number) : 0)}。`;
     case "life.raid-travelers":
-      return `${off("actor")}ら、${loc}の街道に出て行商の荷を掠める。`;
+      return s("victim") !== ""
+        ? `道行く${off("victim")}、${off("actor")}に行く手を塞がれ、路銀を巻き上げられる。`
+        : `${off("actor")}ら、${loc}の街道に出て行商の荷を掠める。`;
     default:
       return `${loc}にて出来事あり(${e.kind})。`;
   }
+}
+
+// ---- 小窓ドラマの台本 ----
+// beatのkeyを講談調の一行へ。{0}{1}は当事者名
+const DRAMA_LINES: Record<string, string> = {
+  "duel.face": "「その方、名のある者と見た。尋常に勝負!」",
+  "duel.clash": "両雄、馬を寄せて斬り結ぶ。刃鳴りは谷にこだました。",
+  "duel.respect": "「見事な腕前……勝負は預けた!」互いに馬を返す。",
+  "duel.fall": "一閃——勝負は決した。{1}、馬上から崩れ落ちる。",
+  "duel.yield": "「無念!」{1}は馬首を返して退いた。",
+  "oath.wine": "香が焚かれ、杯に酒が満たされる。",
+  "oath.vow": "「生まれし日は違えども、死する時は同じくせん」",
+  "oath.sworn": "{0}と{1}、天地に誓って義兄弟となった。",
+  "exec.sentence": "「引き出せ。世の法を見せてくれよう」",
+  "exec.defiance": "「首は刎ねられても、義は斬れぬぞ!」",
+  "exec.fall": "刃が振り下ろされ、群衆は声を失った。",
+  "rescue.ambush": "護送の列が難所に差しかかる。木立の陰に人影——",
+  "rescue.break": "「待たせたな! その枷、貰い受ける!」",
+  "rescue.flee": "枷は砕かれた。二人は追手を振り切り、闇へ消える。",
+  "frame.accuse": "「この者に謀反の疑いあり。証拠は揃っておりますぞ」",
+  "frame.protest": "「身に覚えなし! 天よ、これが世の道理か!」",
+  "frame.exile": "額に金印。流刑の判が下された。",
+  "feast.gather": "篝火のもと、豪傑たちが車座になる。",
+  "feast.toast": "「さあ飲め! 今宵ばかりは無礼講よ!」",
+  "parley.offer": "「その方の武勇、惜しい。わしの下で働かぬか」",
+  "parley.accept": "「……その器量に免じて、この命預けよう」",
+};
+
+export type DramaKindLike =
+  | "duel" | "oath" | "execution" | "rescue" | "feast" | "frame" | "parley";
+
+const DRAMA_TITLES: Record<DramaKindLike, string> = {
+  duel: "一騎討ち",
+  oath: "義盟",
+  execution: "処刑",
+  rescue: "奪還",
+  feast: "酒宴",
+  frame: "冤罪",
+  parley: "帰順",
+};
+
+export function dramaTitle(kind: DramaKindLike): string {
+  return DRAMA_TITLES[kind] ?? "一幕";
+}
+
+export function dramaLine(key: string, actorNames: string[]): string {
+  const template = DRAMA_LINES[key];
+  if (template === undefined) {
+    return "";
+  }
+  return template.replace(/\{(\d)\}/g, (_, i: string) => actorNames[Number(i)] ?? "");
 }
 
 export type StoryKind = "war" | "outlaw" | "oath" | "revenge" | "rise" | "collapse" | "duel";

@@ -1,28 +1,33 @@
-// 責務: 勢力AI。方針決定→任務（侵攻・討伐・護送・収奪）→戦後処理→勢力の興亡（滅亡は消滅ではなく放浪への転落）
-import { runBattle } from "./battle";
+// 責務: 勢力AI。方針決定→任務（侵攻・討伐・護送・収奪）→軍の逐次行軍→勢力の興亡（滅亡は消滅ではなく放浪への転落）
+// 交戦そのものはfield.ts（世界が戦場）が、落城・捕虜などの帰結はfate.tsが裁く
 import { emit } from "./events";
+import { disbandArmy, killOfficer, occupyPlace } from "./fate";
+import { isSealedGate, makeUnits, moveArmyAlongPath } from "./field";
+import type { TileCostFn, XY } from "./grid";
+import { T, chebyshev, findTilePath, moveCostOf } from "./grid";
 import type {
   Army,
   EventId,
   Faction,
-  FactionId,
   NameRegistry,
   Officer,
   Place,
   World,
 } from "./model";
 import {
-  distanceBetween,
+  armyOfficerIds,
   factionOf,
   factionStrength,
-  findPath,
   getRelation,
-  grudgeScore,
   livingOfficers,
   neighborsOf,
   nextId,
+  placePos,
   powerOf,
 } from "./model";
+
+const ARMY_SPEED = 0.75; // 兵站を引きずる軍の1日移動力
+const CONVOY_SPEED = 0.4; // 枷をはめられた護送の足取り
 
 function membersOf(world: World, faction: Faction): Officer[] {
   return faction.members
@@ -31,13 +36,33 @@ function membersOf(world: World, faction: Faction): Officer[] {
 }
 
 function fieldedMembers(world: World, faction: Faction): Officer[] {
-  const inArmies = new Set(world.armies.flatMap((a) => a.officers));
+  const inArmies = new Set(world.armies.flatMap((a) => armyOfficerIds(a)));
   return membersOf(world, faction).filter(
     (o) => o.status === "serving" || o.status === "roaming",
   ).filter((o) => !inArmies.has(o.id));
 }
 
-// ---- 世界の揺らぎ: 天災と収奪 ----
+// 軍の行軍経路: 敵の城内は避ける（門は主の兵しか通さない）
+export function armyPathTo(world: World, factionId: string, from: XY, to: XY): XY[] | undefined {
+  const costFn: TileCostFn = (t, x, y) => {
+    if (t === T.gate && isSealedGate(world, x, y, factionId)) {
+      return Number.POSITIVE_INFINITY;
+    }
+    if (t === T.city || t === T.gate) {
+      const owner = world.cityTiles.get(world.grid.idx(x, y));
+      if (owner !== undefined) {
+        const place = world.places.get(owner);
+        if (place?.owner !== undefined && place.owner !== factionId) {
+          return moveCostOf(t) * 8; // 敵地の城下は避けて通る
+        }
+      }
+    }
+    return moveCostOf(t);
+  };
+  return findTilePath(world.grid, from, to, costFn);
+}
+
+// ---- 世界の揺らぎ: 天災と収奪（月次） ----
 export function stepAgitation(world: World): void {
   const rng = world.rng;
   if (rng.chance(0.03)) {
@@ -92,20 +117,6 @@ export function runFactionStrategies(world: World, names: NameRegistry): void {
   void names;
 }
 
-// 放浪の一党は月ごとに動く（要害を目指し、着けば山寨を開く）
-export function stepRoamingBands(world: World, names: NameRegistry): void {
-  for (const faction of [...world.factions.values()]) {
-    if (faction.fallenTick !== undefined || faction.kind !== "roaming") {
-      continue;
-    }
-    const leader = world.officers.get(faction.leader);
-    if (leader === undefined || leader.status === "dead") {
-      continue;
-    }
-    roamingStrategy(world, faction, leader, names);
-  }
-}
-
 function courtStrategy(world: World, faction: Faction, leader: Officer): void {
   const rng = world.rng;
 
@@ -150,10 +161,11 @@ function courtStrategy(world: World, faction: Faction, leader: Officer): void {
       });
       victim.status = "prisoner";
       delete victim.factionId;
+      delete victim.journey;
       faction.members = faction.members.filter((m) => m !== victim.id);
       victim.fameOfficial = Math.max(0, victim.fameOfficial - 20);
       const dest = world.exileDest;
-      const path = findPath(world, victim.loc, dest);
+      const path = findTilePath(world.grid, victim.pos, placePos(world, dest)) ?? [];
       const convoyEvent = emit(world, {
         kind: "life.convoy",
         loc: victim.loc,
@@ -164,8 +176,11 @@ function courtStrategy(world: World, faction: Faction, leader: Officer): void {
       });
       world.convoys.push({
         prisoner: victim.id,
-        loc: victim.loc,
+        x: victim.pos.x,
+        y: victim.pos.y,
         path,
+        mp: 0,
+        dest,
         escortFactionId: faction.id,
         causeEvent: convoyEvent.id,
       });
@@ -326,13 +341,29 @@ function outlawStrategy(world: World, faction: Faction, leader: Officer): void {
   }
 }
 
+// ---- 放浪の一党（月次判断・日次の歩みはstepJourneysが担う） ----
+export function stepRoamingBands(world: World, names: NameRegistry): void {
+  for (const faction of [...world.factions.values()]) {
+    if (faction.fallenTick !== undefined || faction.kind !== "roaming") {
+      continue;
+    }
+    const leader = world.officers.get(faction.leader);
+    if (leader === undefined || leader.status === "dead") {
+      continue;
+    }
+    roamingStrategy(world, faction, leader, names);
+  }
+}
+
 function roamingStrategy(world: World, faction: Faction, leader: Officer, names: NameRegistry): void {
   const loc = faction.loc ?? leader.loc;
   const here = world.places.get(loc);
   const members = membersOf(world, faction);
+  const arrived = leader.journey === undefined;
 
   // 要害に着いていて頭数が揃えば山寨を開く
   if (
+    arrived &&
     here !== undefined &&
     (here.kind === "lairsite" || here.kind === "marsh") &&
     (here.owner === undefined || here.owner === faction.id) &&
@@ -361,11 +392,11 @@ function roamingStrategy(world: World, faction: Faction, leader: Officer, names:
   );
   let goal: Place | undefined;
   if (freeLairs.length > 0) {
-    let bestDist = Number.POSITIVE_INFINITY;
+    let best = Number.POSITIVE_INFINITY;
     for (const t of freeLairs) {
-      const path = findPath(world, loc, t.id);
-      if (path.length > 0 && path.length < bestDist) {
-        bestDist = path.length;
+      const d = chebyshev(leader.pos, { x: t.gridX, y: t.gridY });
+      if (d < best) {
+        best = d;
         goal = t;
       }
     }
@@ -375,96 +406,57 @@ function roamingStrategy(world: World, faction: Faction, leader: Officer, names:
       .sort((a, b) => a.garrison - b.garrison)[0];
   }
 
-  // よその山寨の門前に立ったなら、力ずくで奪う
-  if (goal !== undefined && loc === goal.id && goal.owner !== undefined && goal.owner !== faction.id) {
-    bandAssault(world, faction, goal, names);
+  if (goal === undefined) {
     return;
   }
 
-  const nextStep = goal !== undefined ? findPath(world, loc, goal.id)[0] : neighborsOf(world, loc)[0];
-  if (nextStep !== undefined) {
-    faction.loc = nextStep;
-    for (const member of members) {
-      member.loc = nextStep;
+  // よその山寨の門前に立ったなら、力ずくで奪う（軍を興し、世界の戦場で決着させる）
+  if (arrived && loc === goal.id && goal.owner !== undefined && goal.owner !== faction.id) {
+    bandAssault(world, faction, goal);
+    return;
+  }
+
+  // 頭領が旅立てば、一党は連れ立って歩む（日次の歩みはstepJourneysで）
+  if (arrived && loc !== goal.id) {
+    const path = findTilePath(world.grid, leader.pos, { x: goal.gridX, y: goal.gridY });
+    if (path !== undefined && path.length > 0) {
+      leader.journey = { path, dest: goal.id, mp: 0, speed: 0.9 };
+      faction.loc = goal.id;
     }
   }
 }
 
-// 放浪の一党による山寨の乗っ取り。軍の編成を経ない、体ひとつの殴り込み
-function bandAssault(world: World, faction: Faction, place: Place, names: NameRegistry): void {
-  const ownerFaction = place.owner !== undefined ? world.factions.get(place.owner) : undefined;
-  const members = membersOf(world, faction).filter((o) => o.status !== "prisoner");
+// 放浪の一党による山寨の乗っ取り。体ひとつの殴り込みが世界の戦場になる
+function bandAssault(world: World, faction: Faction, place: Place): void {
+  const members = membersOf(world, faction).filter((o) => o.status !== "prisoner").slice(0, 6);
   if (members.length === 0) {
+    return;
+  }
+  if (world.armies.some((a) => a.factionId === faction.id)) {
     return;
   }
   const declare = emit(world, {
     kind: "war.declare",
     loc: place.id,
+    at: { x: place.gridX, y: place.gridY },
     actors: members.map((m) => m.id),
     factions: [faction.id, place.owner ?? ""],
     data: { target: place.id, troops: members.length * 80 },
   });
-  const defenders =
-    ownerFaction !== undefined
-      ? fieldedMembers(world, ownerFaction).filter((o) => o.loc === place.id).slice(0, 6)
-      : [];
-  if (defenders.length === 0) {
-    const attackPower = members.reduce((sum, m) => sum + powerOf(m), 0) * 10 + members.length * 80;
-    if (attackPower > place.garrison * (1 + place.defense / 80)) {
-      const fall = emit(world, {
-        kind: "war.city-fall",
-        loc: place.id,
-        factions: [faction.id, ownerFaction?.id ?? ""],
-        actors: members.map((m) => m.id),
-        causes: [declare.id],
-      });
-      place.garrison = Math.max(members.length * 50, Math.floor(place.garrison * 0.3));
-      if (ownerFaction !== undefined) {
-        stripPlace(world, ownerFaction, place, names, fall.id, faction.id);
-      }
-      occupyPlace(world, faction, place, fall.id, names);
-    } else {
-      emit(world, {
-        kind: "war.repelled",
-        loc: place.id,
-        factions: [faction.id, ownerFaction?.id ?? ""],
-        causes: [declare.id],
-      });
-    }
-    return;
-  }
-  const outcome = runBattle({
-    world,
-    place,
-    attacker: { factionId: faction.id, officers: members.slice(0, 6), troops: members.length * 80 },
-    defender: { factionId: ownerFaction?.id ?? "", officers: defenders, troops: Math.max(80, place.garrison) },
-    siege: false,
+  world.armies.push({
+    id: nextId(world, "a"),
+    factionId: faction.id,
+    units: makeUnits(members, members.length * 80),
+    x: members[0]?.pos.x ?? place.gridX,
+    y: members[0]?.pos.y ?? place.gridY,
+    mp: 0,
+    path: [],
+    trail: [],
+    target: place.id,
+    goal: "invade",
+    state: "march",
     causeEvent: declare.id,
   });
-  handleFallen(world, outcome.dead);
-  place.devastation = Math.min(100, place.devastation + outcome.burntCells + outcome.rubbleCells);
-  place.garrison = Math.max(0, place.garrison - outcome.defenderLoss);
-  if (outcome.attackerWon && ownerFaction !== undefined) {
-    emit(world, {
-      kind: "war.city-fall",
-      loc: place.id,
-      factions: [faction.id, ownerFaction.id],
-      actors: members.map((m) => m.id),
-      causes: [outcome.battleEvent],
-    });
-    handleCaptives(world, outcome.captured, faction, ownerFaction, outcome.battleEvent);
-    stripPlace(world, ownerFaction, place, names, outcome.battleEvent, faction.id);
-    occupyPlace(world, faction, place, outcome.battleEvent, names);
-    place.garrison = Math.max(place.garrison, members.length * 50);
-  } else if (!outcome.attackerWon && ownerFaction !== undefined) {
-    emit(world, {
-      kind: "war.repelled",
-      loc: place.id,
-      factions: [faction.id, ownerFaction.id],
-      causes: [outcome.battleEvent],
-    });
-    handleCaptives(world, outcome.captured, ownerFaction, faction, outcome.battleEvent);
-  }
 }
 
 // ---- 軍の編成と進発 ----
@@ -474,6 +466,7 @@ function launchArmy(world: World, faction: Faction, target: string, goal: Army["
   }
   const candidates = fieldedMembers(world, faction)
     .filter((o) => o.id !== faction.leader || faction.kind === "outlaw" || faction.kind === "roaming")
+    .filter((o) => o.journey === undefined)
     .sort((a, b) => powerOf(b) - powerOf(a));
   const officers = candidates.slice(0, 5);
   if (officers.length === 0) {
@@ -490,32 +483,43 @@ function launchArmy(world: World, faction: Faction, target: string, goal: Army["
   if (troops < 250) {
     return;
   }
+  const from = placePos(world, source.id);
+  const to = placePos(world, target);
+  const path = armyPathTo(world, faction.id, from, to);
+  if (path === undefined) {
+    return; // 道が無ければ兵は出せない（山河が戦略を規定する）
+  }
   source.garrison -= troops;
-  const path = findPath(world, source.id, target);
   const declare = emit(world, {
     kind: "war.declare",
     loc: source.id,
+    at: from,
     actors: officers.map((o) => o.id),
     factions: [faction.id, world.places.get(target)?.owner ?? ""],
     data: { target, troops, warId: nextId(world, "w") },
   });
   for (const o of officers) {
     o.loc = source.id;
+    o.pos = { ...from };
+    delete o.journey;
   }
   world.armies.push({
     id: nextId(world, "a"),
     factionId: faction.id,
-    officers: officers.map((o) => o.id),
-    troops,
-    loc: source.id,
+    units: makeUnits(officers, troops),
+    x: from.x,
+    y: from.y,
+    mp: 0,
     path,
+    trail: [],
     target,
     goal,
+    state: "march",
     causeEvent: declare.id,
   });
 }
 
-// ---- 軍の行軍と会戦 ----
+// ---- 軍の行軍（日次）。交戦はfield.tsが拾う ----
 export function stepArmies(world: World, names: NameRegistry): void {
   for (const army of [...world.armies]) {
     const faction = world.factions.get(army.factionId);
@@ -523,401 +527,71 @@ export function stepArmies(world: World, names: NameRegistry): void {
       disbandArmy(world, army);
       continue;
     }
-    const next = army.path.shift();
-    if (next !== undefined) {
-      army.loc = next;
-      for (const oid of army.officers) {
-        const officer = world.officers.get(oid);
-        if (officer !== undefined && officer.status !== "dead") {
-          officer.loc = next;
+    if (army.battleId !== undefined || army.state === "fight") {
+      continue; // 戦場に居る
+    }
+    const targetPlace = world.places.get(army.target);
+    if (targetPlace === undefined) {
+      disbandArmy(world, army);
+      continue;
+    }
+    const targetPos = placePos(world, army.target);
+    if (army.path.length === 0 && chebyshev(army, targetPos) > 1) {
+      const path = armyPathTo(world, army.factionId, { x: army.x, y: army.y }, targetPos);
+      if (path === undefined) {
+        disbandArmy(world, army);
+        continue;
+      }
+      army.path = path;
+    }
+    moveArmyAlongPath(world, army, ARMY_SPEED);
+    // 将たちの現在地も軍と共に動く
+    for (const unit of army.units) {
+      const officer = world.officers.get(unit.officerId);
+      if (officer !== undefined && officer.status !== "dead") {
+        officer.pos = { x: unit.x, y: unit.y };
+      }
+    }
+    if (chebyshev(army, targetPos) > 1) {
+      continue;
+    }
+    // 到着。抵抗が無ければ入城する（抵抗があればfield.tsが攻城戦を開いている）
+    const defenderFaction = targetPlace.owner !== undefined ? world.factions.get(targetPlace.owner) : undefined;
+    const resists = (defenderFaction !== undefined && defenderFaction.id !== faction.id) || targetPlace.garrison > 150;
+    if (resists) {
+      continue;
+    }
+    if (defenderFaction?.id === faction.id) {
+      disbandArmy(world, army);
+      continue;
+    }
+    const occupied = occupyPlace(world, faction, targetPlace, army.causeEvent, names);
+    if (occupied) {
+      emit(world, {
+        kind: "war.city-fall",
+        loc: targetPlace.id,
+        at: targetPos,
+        factions: [faction.id],
+        actors: armyOfficerIds(army),
+        causes: [army.causeEvent],
+      });
+      targetPlace.garrison += Math.floor(army.units.reduce((s, u) => s + (u.gone ? 0 : u.troops), 0) * 0.8);
+    }
+    disbandArmy(world, army, occupied);
+    if (occupied) {
+      for (const unit of army.units) {
+        const officer = world.officers.get(unit.officerId);
+        if (officer !== undefined && officer.status !== "dead" && officer.status !== "prisoner") {
+          officer.loc = targetPlace.id;
+          officer.pos = { ...targetPos };
+          delete officer.journey;
         }
       }
     }
-    if (army.loc !== army.target) {
-      continue;
-    }
-    resolveAssault(world, army, faction, names);
   }
 }
 
-function resolveAssault(world: World, army: Army, faction: Faction, names: NameRegistry): void {
-  const place = world.places.get(army.target);
-  if (place === undefined) {
-    disbandArmy(world, army);
-    return;
-  }
-  const defenderFaction = place.owner !== undefined ? world.factions.get(place.owner) : undefined;
-  if (defenderFaction === undefined || defenderFaction.id === faction.id) {
-    // 無主の城でも残兵は抗う
-    if (defenderFaction === undefined && place.garrison > 150) {
-      if (army.troops <= place.garrison * (1 + place.defense / 80)) {
-        emit(world, {
-          kind: "war.repelled",
-          loc: place.id,
-          factions: [faction.id],
-          causes: [army.causeEvent],
-        });
-        army.troops = Math.floor(army.troops * 0.7);
-        place.garrison = Math.floor(place.garrison * 0.85);
-        disbandArmy(world, army);
-        return;
-      }
-      army.troops = Math.floor(army.troops * 0.85);
-      place.garrison = Math.floor(place.garrison * 0.25);
-    }
-    const occupied = occupyPlace(world, faction, place, army.causeEvent, names);
-    if (occupied) {
-      emit(world, {
-        kind: "war.city-fall",
-        loc: place.id,
-        factions: [faction.id],
-        actors: army.officers,
-        causes: [army.causeEvent],
-      });
-      place.garrison += Math.floor(army.troops * 0.8);
-    }
-    disbandArmy(world, army, occupied);
-    return;
-  }
-
-  const attackers = army.officers
-    .map((id) => world.officers.get(id))
-    .filter((o): o is Officer => o !== undefined && o.status !== "dead");
-  // 守将はその地にいる者、次いで隣接する自領から駆けつける（遠隔地からの瞬間移動はしない）
-  const defenders = fieldedMembers(world, defenderFaction)
-    .filter((o) => o.loc === place.id)
-    .slice(0, 6);
-  if (defenders.length < 3) {
-    // 広い世界では二辺以内の自領から守将が駆けつける
-    const nearby = fieldedMembers(world, defenderFaction).filter(
-      (o) =>
-        o.loc !== place.id &&
-        defenderFaction.cities.includes(o.loc) &&
-        distanceBetween(world, o.loc, place.id) <= 2,
-    );
-    defenders.push(...nearby.slice(0, 3 - defenders.length));
-  }
-  for (const d of defenders) {
-    d.loc = place.id;
-  }
-
-  // 守将不在なら采配なき籠城。兵力と城壁だけの勝負になる
-  if (defenders.length === 0) {
-    const holdPower = place.garrison * (1 + place.defense / 80);
-    if (army.troops > holdPower) {
-      const fall = emit(world, {
-        kind: "war.city-fall",
-        loc: place.id,
-        factions: [faction.id, defenderFaction.id],
-        actors: army.officers,
-        causes: [army.causeEvent],
-      });
-      place.garrison = Math.floor(place.garrison * 0.25);
-      army.troops = Math.floor(army.troops * 0.85);
-      stripPlace(world, defenderFaction, place, names, fall.id, faction.id);
-      const occupied = occupyPlace(world, faction, place, fall.id, names);
-      if (occupied) {
-        place.garrison += Math.floor(army.troops * 0.8);
-      }
-      disbandArmy(world, army, occupied);
-    } else {
-      emit(world, {
-        kind: "war.repelled",
-        loc: place.id,
-        factions: [faction.id, defenderFaction.id],
-        causes: [army.causeEvent],
-      });
-      army.troops = Math.floor(army.troops * 0.7);
-      place.garrison = Math.floor(place.garrison * 0.85);
-      disbandArmy(world, army);
-    }
-    return;
-  }
-
-  const siege = place.defense >= 35 && (place.kind === "capital" || place.kind === "county" || place.kind === "manor");
-  const outcome = runBattle({
-    world,
-    place,
-    attacker: { factionId: faction.id, officers: attackers, troops: army.troops },
-    defender: {
-      factionId: defenderFaction.id,
-      officers: defenders,
-      troops: Math.max(80, place.garrison),
-    },
-    siege,
-    causeEvent: army.causeEvent,
-  });
-
-  // 世界への恒久的な傷跡: 焼け跡と瓦礫は都市の力を削る
-  place.devastation = Math.min(100, place.devastation + outcome.burntCells + outcome.rubbleCells);
-  place.wealth = Math.max(3, place.wealth - Math.floor(outcome.burntCells * 0.6));
-  place.defense = Math.max(5, place.defense - Math.floor(outcome.burntCells * 0.4) - (outcome.gateBreached ? 6 : 0));
-
-  handleFallen(world, outcome.dead);
-  army.troops = Math.max(0, army.troops - outcome.attackerLoss);
-  place.garrison = Math.max(0, place.garrison - outcome.defenderLoss);
-
-  if (outcome.attackerWon) {
-    emit(world, {
-      kind: "war.city-fall",
-      loc: place.id,
-      factions: [faction.id, defenderFaction.id],
-      actors: army.officers,
-      causes: [outcome.battleEvent],
-    });
-    for (const winner of attackers) {
-      if (winner.status !== "dead") {
-        winner.fameOfficial += faction.kind === "court" ? 4 : 0;
-        winner.fameOutlaw += faction.kind === "court" ? 0 : 4;
-      }
-    }
-    handleCaptives(world, outcome.captured, faction, defenderFaction, outcome.battleEvent);
-    stripPlace(world, defenderFaction, place, names, outcome.battleEvent, faction.id);
-    const occupied = occupyPlace(world, faction, place, outcome.battleEvent, names);
-    const leader = world.officers.get(faction.leader);
-    if (occupied && leader !== undefined && (leader.values.acquisition >= 65 || leader.values.aggression >= 75)) {
-      place.wealth = Math.max(3, place.wealth - 15);
-      place.sentiment = Math.max(0, place.sentiment - 15);
-      emit(world, {
-        kind: "war.plunder",
-        loc: place.id,
-        factions: [faction.id],
-        actors: [leader.id],
-        causes: [outcome.battleEvent],
-        data: { leader: leader.id },
-      });
-    }
-    if (occupied) {
-      place.garrison += Math.floor(army.troops * 0.8);
-    }
-    disbandArmy(world, army, occupied);
-  } else {
-    emit(world, {
-      kind: "war.repelled",
-      loc: place.id,
-      factions: [faction.id, defenderFaction.id],
-      causes: [outcome.battleEvent],
-    });
-    // 敗戦は懲りる。しばらくは同じ砦に兵を向けない
-    faction.feud.set(defenderFaction.id, Math.max(0, (faction.feud.get(defenderFaction.id) ?? 0) - 35));
-    handleCaptives(world, outcome.captured, defenderFaction, faction, outcome.battleEvent);
-    disbandArmy(world, army);
-  }
-}
-
-function occupyPlace(
-  world: World,
-  faction: Faction,
-  place: Place,
-  causeId: EventId,
-  names: NameRegistry,
-): boolean {
-  // 官軍は山寨を統治しない。焼き払って引き揚げる（要害はいずれ次の緑林が拠る——この循環が世界の心臓）
-  if (faction.kind === "court" && (place.kind === "lairsite" || place.kind === "marsh")) {
-    delete place.owner;
-    place.garrison = 0;
-    place.defense = Math.max(5, place.defense - 8);
-    place.devastation = Math.min(100, place.devastation + 10);
-    emit(world, {
-      kind: "war.raze",
-      loc: place.id,
-      factions: [faction.id],
-      causes: [causeId],
-      data: {},
-    });
-    return false;
-  }
-  place.owner = faction.id;
-  if (!faction.cities.includes(place.id)) {
-    faction.cities.push(place.id);
-  }
-  delete faction.loc;
-  // 緑林が城市を得れば、もはや山賊ではない
-  if (faction.kind === "outlaw" && (place.kind === "county" || place.kind === "capital" || place.kind === "manor")) {
-    faction.kind = "warlord";
-    faction.legitimacy = Math.min(60, faction.legitimacy + 20);
-    emit(world, {
-      kind: "faction.rise",
-      loc: place.id,
-      factions: [faction.id],
-      actors: [faction.leader],
-      causes: [causeId],
-    });
-  }
-  if (faction.kind === "roaming") {
-    faction.kind = place.kind === "lairsite" || place.kind === "marsh" ? "outlaw" : "warlord";
-    names.registerLair(faction.id, place.id, world.tick);
-  }
-  return true;
-}
-
-function stripPlace(
-  world: World,
-  loser: Faction,
-  place: Place,
-  names: NameRegistry,
-  causeId: EventId,
-  attackerFactionId?: FactionId,
-): void {
-  loser.cities = loser.cities.filter((c) => c !== place.id);
-  if (attackerFactionId !== undefined) {
-    // 城を奪われた恨みは深い。奪回の火種になる
-    loser.feud.set(attackerFactionId, (loser.feud.get(attackerFactionId) ?? 0) + 60);
-  }
-  if (loser.cities.length > 0) {
-    return;
-  }
-  // 領地を全て失った勢力は消滅しない。散り散りの放浪軍となって世を漂う
-  loser.kind = "roaming";
-  delete loser.fallenTick;
-  const survivors = membersOf(world, loser).filter((o) => o.status === "serving" || o.status === "roaming");
-  const fallEvent = emit(world, {
-    kind: "faction.fall",
-    loc: place.id,
-    factions: [loser.id],
-    actors: survivors.map((o) => o.id),
-    causes: [causeId],
-  });
-  const escape = neighborsOf(world, place.id).find((pid) => {
-    const p = world.places.get(pid);
-    return p !== undefined && p.owner !== place.owner;
-  }) ?? neighborsOf(world, place.id)[0];
-  const dest = escape ?? place.id;
-  loser.loc = dest;
-  for (const survivor of survivors) {
-    survivor.status = "roaming";
-    survivor.loc = dest;
-  }
-  if (survivors.length === 0) {
-    loser.fallenTick = world.tick;
-    emit(world, {
-      kind: "faction.disband",
-      factions: [loser.id],
-      causes: [fallEvent.id],
-    });
-  }
-}
-
-function handleFallen(world: World, deadIds: string[]): void {
-  for (const id of deadIds) {
-    const officer = world.officers.get(id);
-    if (officer === undefined || officer.status === "dead") {
-      continue;
-    }
-    killOfficer(world, officer);
-  }
-}
-
-export function killOfficer(world: World, officer: Officer): void {
-  officer.status = "dead";
-  officer.deathTick = world.tick;
-  officer.hp = 0;
-  const faction = factionOf(world, officer);
-  if (faction !== undefined) {
-    faction.members = faction.members.filter((m) => m !== officer.id);
-  }
-  delete officer.factionId;
-}
-
-function handleCaptives(
-  world: World,
-  captured: string[],
-  captorFaction: Faction,
-  loserFaction: Faction,
-  causeId: EventId,
-): void {
-  const captorLeader = world.officers.get(captorFaction.leader);
-  for (const id of captured) {
-    const captive = world.officers.get(id);
-    if (captive === undefined || captive.status === "dead" || captorLeader === undefined) {
-      continue;
-    }
-    loserFaction.members = loserFaction.members.filter((m) => m !== captive.id);
-    delete captive.factionId;
-
-    const affinity = getRelation(captive, captorLeader.id).affinity;
-    const wantsRecruit =
-      captorLeader.values.altruism >= 60 &&
-      captorLeader.aptitudes.charisma >= 60 &&
-      grudgeScore(captive, captorLeader.id) < 40;
-    if (wantsRecruit) {
-      const yielding =
-        (100 - captive.values.loyalty) * 0.4 +
-        captorLeader.aptitudes.charisma * 0.4 +
-        affinity * 0.3 +
-        world.rng.range(0, 30);
-      if (yielding > 60) {
-        captive.status = captorFaction.cities.length > 0 ? "serving" : "roaming";
-        captive.factionId = captorFaction.id;
-        captorFaction.members.push(captive.id);
-        captive.loc = captorFaction.cities[0] ?? captorFaction.loc ?? captive.loc;
-        emit(world, {
-          kind: "life.recruit",
-          loc: captive.loc,
-          actors: [captorLeader.id, captive.id],
-          factions: [captorFaction.id],
-          causes: [causeId],
-          data: { leader: captorLeader.id, joiner: captive.id },
-        });
-        continue;
-      }
-      captive.status = "roaming";
-      emit(world, {
-        kind: "life.release",
-        loc: captive.loc,
-        actors: [captorLeader.id, captive.id],
-        causes: [causeId],
-        data: { captor: captorLeader.id, released: captive.id },
-      });
-      continue;
-    }
-    // 情け容赦なき勝者は見せしめに斬る（怨恨が世界に撒かれる）
-    if (captorLeader.values.altruism <= 40 || (captorFaction.feud.get(loserFaction.id) ?? 0) >= 50) {
-      const execEvent = emit(world, {
-        kind: "life.execute",
-        loc: captorFaction.cities[0] ?? captive.loc,
-        actors: [captive.id, captorLeader.id],
-        factions: [captorFaction.id],
-        causes: [causeId],
-        data: { victim: captive.id, orderer: captorLeader.id },
-      });
-      void execEvent;
-      killOfficer(world, captive);
-      continue;
-    }
-    captive.status = "roaming";
-    emit(world, {
-      kind: "life.release",
-      loc: captive.loc,
-      actors: [captorLeader.id, captive.id],
-      causes: [causeId],
-      data: { captor: captorLeader.id, released: captive.id },
-    });
-  }
-}
-
-function disbandArmy(world: World, army: Army, absorbed = false): void {
-  world.armies = world.armies.filter((a) => a !== army);
-  if (absorbed) {
-    return;
-  }
-  const faction = world.factions.get(army.factionId);
-  const home = faction?.cities[0];
-  if (home !== undefined) {
-    const place = world.places.get(home);
-    if (place !== undefined) {
-      place.garrison += Math.floor(army.troops * 0.9);
-    }
-    for (const oid of army.officers) {
-      const officer = world.officers.get(oid);
-      if (officer !== undefined && officer.status !== "dead" && officer.status !== "prisoner") {
-        officer.loc = home;
-      }
-    }
-  }
-}
-
-// ---- 流刑の護送と奪還 ----
+// ---- 流刑の護送と奪還（日次） ----
 export function stepConvoys(world: World, names: NameRegistry): void {
   void names;
   for (const convoy of [...world.convoys]) {
@@ -926,24 +600,30 @@ export function stepConvoys(world: World, names: NameRegistry): void {
       world.convoys = world.convoys.filter((c) => c !== convoy);
       continue;
     }
-    // 枷をはめられた足取りは重い（隔月でしか進まない。友が駆けつける猶予がある）
-    if (world.tick % 2 === 0) {
-      const next = convoy.path.shift();
-      if (next !== undefined) {
-        convoy.loc = next;
-        prisoner.loc = next;
+    // 枷をはめられた足取りは重い
+    convoy.mp += CONVOY_SPEED;
+    while (convoy.path.length > 0) {
+      const next = convoy.path[0] as XY;
+      const diag = next.x !== convoy.x && next.y !== convoy.y ? 1.41 : 1;
+      const cost = moveCostOf(world.grid.at(next.x, next.y)) * diag;
+      if (!Number.isFinite(cost) || convoy.mp < cost) {
+        break;
       }
+      convoy.mp -= cost;
+      convoy.path.shift();
+      convoy.x = next.x;
+      convoy.y = next.y;
+      prisoner.pos = { x: next.x, y: next.y };
     }
-    const here = world.places.get(convoy.loc);
 
-    // 報せを聞いた友は護送路へ急ぐ
-    const inArmies = new Set(world.armies.flatMap((a) => a.officers));
+    // 報せを聞いた友は護送路の先へ急ぐ
+    const inArmies = new Set(world.armies.flatMap((a) => armyOfficerIds(a)));
     for (const friend of livingOfficers(world)) {
       if (
         friend.id === prisoner.id ||
         friend.status === "prisoner" ||
         friend.factionId === convoy.escortFactionId ||
-        friend.loc === convoy.loc ||
+        friend.journey !== undefined ||
         inArmies.has(friend.id)
       ) {
         continue;
@@ -953,14 +633,22 @@ export function stepConvoys(world: World, names: NameRegistry): void {
       if (!close || friend.aptitudes.valor < 60) {
         continue;
       }
-      const path = findPath(world, friend.loc, convoy.loc);
-      const step = path[0];
-      if (path.length > 0 && path.length <= 3 && step !== undefined) {
-        friend.loc = step;
+      if (chebyshev(friend.pos, convoy) <= 1) {
+        continue; // すでに間合いに居る
+      }
+      // 行く手に先回りする（護送の数歩先を狙う）
+      const ahead = convoy.path[Math.min(6, convoy.path.length - 1)] ?? convoy;
+      const dist = chebyshev(friend.pos, ahead);
+      if (dist > 30) {
+        continue; // 遠すぎる報せは届かない
+      }
+      const path = findTilePath(world.grid, friend.pos, { x: ahead.x, y: ahead.y });
+      if (path !== undefined && path.length > 0) {
+        friend.journey = { path, dest: convoy.dest, mp: 0, speed: 1.1 };
       }
     }
 
-    // 街道に潜む友が枷を断つ（林深き難所ほど成功しやすい）
+    // 間合いに潜む友が枷を断つ（林深き難所ほど成功しやすい）
     const rescuers = livingOfficers(world).filter((o) => {
       if (o.id === prisoner.id || o.status === "prisoner" || o.status === "dead") {
         return false;
@@ -970,15 +658,18 @@ export function stepConvoys(world: World, names: NameRegistry): void {
       }
       const rel = o.rel.get(prisoner.id);
       const close = rel !== undefined && (rel.affinity >= 50 || rel.bond !== undefined);
-      return close && o.aptitudes.valor >= 65 && o.loc === convoy.loc;
+      return close && o.aptitudes.valor >= 65 && chebyshev(o.pos, convoy) <= 1;
     });
     const rescuer = rescuers[0];
     if (rescuer !== undefined) {
-      const forestBonus = (here?.terrainForest ?? 0) * 0.5;
-      if (world.rng.chance(0.55 + forestBonus)) {
+      const t = world.grid.at(convoy.x, convoy.y);
+      const terrainBonus = t === T.forest ? 0.35 : t === T.gate || t === T.marsh ? 0.2 : 0;
+      // 奪還は日々の賭け（1日あたりの機会は小さく、旅の間に何度も訪れる）
+      if (world.rng.chance(0.18 + terrainBonus)) {
         const rescueEvent = emit(world, {
           kind: "life.rescue-convoy",
-          loc: convoy.loc,
+          loc: prisoner.loc,
+          at: { x: convoy.x, y: convoy.y },
           actors: [rescuer.id, prisoner.id],
           causes: [convoy.causeEvent],
           data: { rescuer: rescuer.id, prisoner: prisoner.id },
@@ -991,9 +682,10 @@ export function stepConvoys(world: World, names: NameRegistry): void {
     }
 
     if (convoy.path.length === 0) {
+      prisoner.loc = convoy.dest;
       emit(world, {
         kind: "life.prison",
-        loc: convoy.loc,
+        loc: convoy.dest,
         actors: [prisoner.id],
         causes: [convoy.causeEvent],
         data: { prisoner: prisoner.id },
@@ -1004,13 +696,14 @@ export function stepConvoys(world: World, names: NameRegistry): void {
 }
 
 // 奪還者と囚人は運命共同体になる（既存の一党へ、なければ二人の党を興す）
-function bindFugitives(world: World, rescuer: Officer, prisoner: Officer, causeId: EventId): void {
+export function bindFugitives(world: World, rescuer: Officer, prisoner: Officer, causeId: EventId): void {
   const rescuerFaction = factionOf(world, rescuer);
   if (rescuerFaction !== undefined && (rescuerFaction.kind === "roaming" || rescuerFaction.kind === "outlaw")) {
     prisoner.factionId = rescuerFaction.id;
     prisoner.status = rescuerFaction.cities.length > 0 ? "serving" : "roaming";
     rescuerFaction.members.push(prisoner.id);
     prisoner.loc = rescuer.loc;
+    prisoner.pos = { ...rescuer.pos };
     emit(world, {
       kind: "life.join",
       loc: prisoner.loc,
@@ -1024,9 +717,10 @@ function bindFugitives(world: World, rescuer: Officer, prisoner: Officer, causeI
   rescuer.status = "roaming";
   prisoner.status = "roaming";
   prisoner.loc = rescuer.loc;
+  prisoner.pos = { ...rescuer.pos };
 }
 
-// ---- 獄と処刑: 牢に繋がれた者の運命 ----
+// ---- 獄と処刑: 牢に繋がれた者の運命（月次） ----
 export function stepPrisons(world: World): void {
   for (const officer of livingOfficers(world)) {
     if (officer.status !== "prisoner") {
@@ -1043,7 +737,7 @@ export function stepPrisons(world: World): void {
     }
     // 劫牢: 同じ地に肝胆相照らす友がいれば、夜陰に乗じて牢を破る
     const breaker = livingOfficers(world).find((o) => {
-      if (o.id === officer.id || o.status === "prisoner" || o.loc !== officer.loc) {
+      if (o.id === officer.id || o.status === "prisoner" || o.loc !== officer.loc || o.journey !== undefined) {
         return false;
       }
       if (o.factionId === holder.id) {
@@ -1093,9 +787,8 @@ export function stepPrisons(world: World): void {
   }
 }
 
-// ---- 頭領の死: 継承・分裂・四散 ----
+// ---- 頭領の死: 継承・分裂・四散（月次） ----
 export function stepSuccessions(world: World, names: NameRegistry): void {
-  void names;
   for (const faction of [...world.factions.values()]) {
     if (faction.fallenTick !== undefined) {
       continue;

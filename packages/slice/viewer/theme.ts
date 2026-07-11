@@ -1,4 +1,6 @@
-// 責務: Viewerの見た目定義。セル寸法・勢力色・地形/技の表示対応（描画専用、シムには影響しない）
+// 責務: Viewerの見た目定義。セル寸法・勢力色・地形タイル/技の表示対応（描画専用、シムには影響しない）
+import { T } from "../src/grid";
+
 export const CELL = 8; // 1グリッドセルの描画ピクセル
 
 // 初期勢力の旗色（勢力識別を最優先）
@@ -38,23 +40,23 @@ export function factionColor(factionId: string | undefined): number {
   return color;
 }
 
-// 合戦リプレイの盤面記号 → タイル色
-export const TERRAIN_COLORS: Record<string, number> = {
-  "・": 0x4c5b3c,
-  木: 0x2f4d2b,
-  波: 0x2b4a6f,
-  山: 0x6b5d4a,
-  壁: 0x8d8d8d,
-  門: 0xa88a5a,
-  瓦: 0x55504a,
-  焦: 0x2b2320,
-  沼: 0x3a5a52,
-  営: 0x7a6248,
-  炎: 0xe25822,
+// 世界タイル → 基調色（CSS色。地形Canvasの塗りに使う）
+export const TILE_COLORS: Record<number, string> = {
+  [T.plain]: "#46543a",
+  [T.road]: "#8a7454",
+  [T.forest]: "#28421f",
+  [T.mountain]: "#575046",
+  [T.river]: "#2f5a7d",
+  [T.ford]: "#5a7a8a",
+  [T.marsh]: "#3a5c60",
+  [T.dry]: "#8d7c55",
+  [T.sea]: "#1d3d5c",
+  [T.city]: "#6f6046",
+  [T.wall]: "#8d8d8d",
+  [T.gate]: "#a88a5a",
+  [T.burnt]: "#2b2320",
+  [T.rubble]: "#55504a",
 };
-
-export const ATTACKER_GLYPHS = new Set(["Ａ", "Ｂ", "Ｃ", "Ｄ", "Ｅ", "Ｆ"]);
-export const DEFENDER_GLYPHS = new Set(["甲", "乙", "丙", "丁", "戊", "己"]);
 
 // 兵法発動ポップ（SAN9の「発動が癖になる」を移植）
 export const SKILL_POP: Record<string, { label: string; color: number }> = {
@@ -71,6 +73,8 @@ export const SKILL_POP: Record<string, { label: string; color: number }> = {
   "clash.drown": { label: "水没", color: 0x9ad0ff },
   "clash.burn": { label: "延焼", color: 0xff7a3d },
   "clash.rescue": { label: "救援", color: 0x9af0c0 },
+  "war.gate-breach": { label: "城門破壊!", color: 0xffb060 },
+  "war.join": { label: "横槍!", color: 0xa0ffd0 },
 };
 
 export const FONT_JP =

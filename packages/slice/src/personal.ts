@@ -1,21 +1,26 @@
 // 責務: 武将個人AI。武将は勢力の駒ではなく、勢力AIとは別に交流し、怨み、義を結び、人生を送る
+// 裁定R-17: 武将は拠点間を瞬間移動しない。世界タイルを一歩ずつ歩き、道中で出会い、襲われ、擦れ違う
 import { emit } from "./events";
+import { killOfficer } from "./fate";
+import type { XY } from "./grid";
+import { chebyshev, findTilePath, moveCostOf } from "./grid";
 import type { NameRegistry, Officer, World } from "./model";
 import {
+  armyOfficerIds,
   factionOf,
   getRelation,
   grudgeScore,
   livingOfficers,
-  neighborsOf,
+  monthOf,
   nextId,
   officersAt,
+  placePos,
 } from "./model";
-import { killOfficer } from "./strategy";
 
 function busyOfficerIds(world: World): Set<string> {
   const ids = new Set<string>();
   for (const army of world.armies) {
-    for (const oid of army.officers) {
+    for (const oid of armyOfficerIds(army)) {
       ids.add(oid);
     }
   }
@@ -25,6 +30,131 @@ function busyOfficerIds(world: World): Set<string> {
   return ids;
 }
 
+// 旅立ち: 目的地への道をタイルで引く
+export function startJourney(world: World, officer: Officer, dest: string, speed = 1.0): boolean {
+  const to = placePos(world, dest);
+  const path = findTilePath(world.grid, officer.pos, to);
+  if (path === undefined || path.length === 0) {
+    return false;
+  }
+  officer.journey = { path, dest, mp: 0, speed };
+  return true;
+}
+
+// ---- 日次: 旅人たちの歩みと道中の運命 ----
+export function stepJourneys(world: World): void {
+  const busy = busyOfficerIds(world);
+  const travelers: Officer[] = [];
+  for (const officer of livingOfficers(world)) {
+    if (officer.journey === undefined || busy.has(officer.id) || officer.status === "prisoner") {
+      continue;
+    }
+    const journey = officer.journey;
+    journey.mp += journey.speed;
+    while (journey.path.length > 0) {
+      const next = journey.path[0] as XY;
+      const diag = next.x !== officer.pos.x && next.y !== officer.pos.y ? 1.41 : 1;
+      const cost = moveCostOf(world.grid.at(next.x, next.y)) * diag;
+      if (!Number.isFinite(cost)) {
+        delete officer.journey; // 道が塞がれた（崖崩れ・延焼）。旅を諦める
+        break;
+      }
+      if (journey.mp < cost) {
+        break;
+      }
+      journey.mp -= cost;
+      journey.path.shift();
+      officer.pos = { x: next.x, y: next.y };
+    }
+    if (officer.journey !== undefined && officer.journey.path.length === 0) {
+      officer.loc = officer.journey.dest;
+      delete officer.journey;
+    } else if (officer.journey !== undefined) {
+      travelers.push(officer);
+    }
+  }
+
+  // 放浪の一党は頭領と共に歩む
+  for (const faction of world.factions.values()) {
+    if (faction.kind !== "roaming" || faction.fallenTick !== undefined) {
+      continue;
+    }
+    const leader = world.officers.get(faction.leader);
+    if (leader === undefined || leader.status === "dead") {
+      continue;
+    }
+    for (const memberId of faction.members) {
+      const member = world.officers.get(memberId);
+      if (member === undefined || member.id === leader.id || member.status !== "roaming" || busy.has(member.id)) {
+        continue;
+      }
+      member.pos = { ...leader.pos };
+      member.loc = leader.loc;
+      delete member.journey;
+    }
+    if (leader.journey === undefined) {
+      faction.loc = leader.loc;
+    }
+  }
+
+  // 道中の運命: 追い剥ぎと擦れ違い（都市の外でも世界は動く）
+  const rng = world.rng;
+  for (const traveler of travelers) {
+    // 追い剥ぎ: 手癖の悪い者が街道の難所に立つ
+    const robbers = livingOfficers(world).filter(
+      (o) =>
+        o.id !== traveler.id &&
+        o.journey === undefined &&
+        !busy.has(o.id) &&
+        o.status !== "prisoner" &&
+        (o.factionId === undefined || o.factionId !== traveler.factionId) &&
+        o.values.aggression >= 60 &&
+        o.values.acquisition >= 45 &&
+        chebyshev(o.pos, traveler.pos) <= 1,
+    );
+    const robber = robbers[0];
+    if (robber !== undefined && rng.chance(0.2)) {
+      const toll = Math.min(traveler.gold, 10);
+      traveler.gold -= toll;
+      robber.gold += toll;
+      traveler.hp = Math.max(1, traveler.hp - 8);
+      robber.fameOutlaw = Math.min(100, robber.fameOutlaw + 3);
+      emit(world, {
+        kind: "life.raid-travelers",
+        at: { x: traveler.pos.x, y: traveler.pos.y },
+        actors: [robber.id, traveler.id],
+        data: { actor: robber.id, victim: traveler.id },
+      });
+      continue;
+    }
+    // 擦れ違い: 旅人同士が道で出会う
+    const other = travelers.find(
+      (o) => o.id !== traveler.id && chebyshev(o.pos, traveler.pos) <= 1 && !traveler.rel.has(o.id),
+    );
+    if (other !== undefined && rng.chance(0.3)) {
+      const diff =
+        Math.abs(traveler.values.altruism - other.values.altruism) +
+        Math.abs(traveler.values.aggression - other.values.aggression) +
+        Math.abs(traveler.values.acquisition - other.values.acquisition);
+      let impression = Math.floor((90 - diff) / 3);
+      if (traveler.aptitudes.valor >= 80 && other.aptitudes.valor >= 80) {
+        impression += 12; // 豪傑は豪傑を知る
+      }
+      getRelation(traveler, other.id).affinity = impression;
+      getRelation(other, traveler.id).affinity = impression;
+      if (Math.abs(impression) >= 8) {
+        emit(world, {
+          kind: "life.meet",
+          at: { x: traveler.pos.x, y: traveler.pos.y },
+          actors: [traveler.id, other.id],
+          data: { onRoad: true },
+        });
+      }
+    }
+  }
+}
+
+// ---- 月次: 人生の節目 ----
 export function stepPersonalLives(world: World, names: NameRegistry): void {
   const busy = busyOfficerIds(world);
 
@@ -33,6 +163,9 @@ export function stepPersonalLives(world: World, names: NameRegistry): void {
       continue;
     }
     officer.hp = Math.min(100, officer.hp + 6);
+    if (officer.journey !== undefined) {
+      continue; // 旅の空の下では節目の決断はしない
+    }
 
     if (officer.status === "serving") {
       if (tryDefect(world, officer, names)) {
@@ -171,7 +304,7 @@ function tryRevenge(world: World, officer: Officer): boolean {
     return false;
   }
 
-  if (target.loc === officer.loc && target.status !== "prisoner") {
+  if (chebyshev(target.pos, officer.pos) <= 1 && target.status !== "prisoner") {
     const causes = officer.rel.get(target.id)?.grudges.slice(-2) ?? [];
     const attackRoll = officer.aptitudes.valor + officer.aptitudes.craft * 0.4 + world.rng.range(0, 40);
     const defendRoll = target.aptitudes.valor + world.rng.range(0, 40);
@@ -180,12 +313,14 @@ function tryRevenge(world: World, officer: Officer): boolean {
       emit(world, {
         kind: "life.revenge",
         loc: officer.loc,
+        at: { x: officer.pos.x, y: officer.pos.y },
         actors: [officer.id, target.id],
         causes,
         data: { avenger: officer.id, victim: target.id, killer: officer.id, fatal },
       });
       if (fatal) {
         killOfficer(world, target);
+        world.corpses.push({ x: target.pos.x, y: target.pos.y, tick: world.tick });
       } else {
         target.hp = Math.max(1, target.hp - 40);
         officer.rel.get(target.id)?.grudges.splice(0);
@@ -196,6 +331,7 @@ function tryRevenge(world: World, officer: Officer): boolean {
     emit(world, {
       kind: "life.duel",
       loc: officer.loc,
+      at: { x: officer.pos.x, y: officer.pos.y },
       actors: [target.id, officer.id],
       causes,
       data: { winner: target.id, loser: officer.id },
@@ -206,12 +342,7 @@ function tryRevenge(world: World, officer: Officer): boolean {
 
   // 怨みが深ければ仇を追って旅に出る
   if (top.score >= 70 && officer.values.aggression >= 65 && officer.status !== "serving") {
-    const next = neighborsOf(world, officer.loc).find((n) => n === target.loc) ??
-      neighborsOf(world, officer.loc)[world.rng.int(Math.max(1, neighborsOf(world, officer.loc).length))];
-    if (next !== undefined) {
-      officer.loc = next;
-      return true;
-    }
+    return startJourney(world, officer, target.loc, 1.1);
   }
   return false;
 }
@@ -253,7 +384,13 @@ function tryRecruit(world: World, officer: Officer): void {
 }
 
 function rngWeightedWander(world: World, officer: Officer): string | undefined {
-  const neighbors = neighborsOf(world, officer.loc);
+  const neighbors = [...world.places.keys()].filter((pid) => {
+    if (pid === officer.loc) {
+      return false;
+    }
+    const d = chebyshev(officer.pos, placePos(world, pid));
+    return d <= 34; // 一月で歩ける距離感の土地
+  });
   if (neighbors.length === 0) {
     return undefined;
   }
@@ -262,13 +399,14 @@ function rngWeightedWander(world: World, officer: Officer): string | undefined {
     if (place === undefined) {
       return 1;
     }
+    const near = chebyshev(officer.pos, placePos(world, n)) <= 22 ? 2 : 1;
     if (place.kind === "pass" || place.kind === "port" || place.kind === "town") {
-      return 3;
+      return 3 * near;
     }
     if (place.kind === "lairsite" || place.kind === "marsh") {
-      return officer.fameOutlaw >= 30 ? 3 : 1;
+      return (officer.fameOutlaw >= 30 ? 3 : 1) * near;
     }
-    return 2;
+    return 2 * near;
   });
 }
 
@@ -327,7 +465,7 @@ function tryRoamActions(world: World, officer: Officer, wanderTarget: string | u
   }
 
   if (wanderTarget !== undefined && world.rng.chance(0.6)) {
-    officer.loc = wanderTarget;
+    startJourney(world, officer, wanderTarget);
   }
 }
 
@@ -338,6 +476,9 @@ function socialPass(world: World, busy: Set<string>): void {
   for (const officer of livingOfficers(world)) {
     if (officer.status === "dead" || officer.status === "prisoner" || busy.has(officer.id)) {
       continue;
+    }
+    if (officer.journey !== undefined) {
+      continue; // 旅の空の下（社交は場に着いてから）
     }
     const list = byPlace.get(officer.loc) ?? [];
     list.push(officer);
@@ -440,9 +581,9 @@ function socialPass(world: World, busy: Set<string>): void {
   }
 }
 
-// ---- 老いと病: 人生は続き、そして終わる ----
+// ---- 老いと病: 人生は続き、そして終わる（月次） ----
 function agingPass(world: World): void {
-  const isYearHead = world.tick % 12 === 11;
+  const isYearHead = monthOf(world.tick) === 12;
   for (const officer of livingOfficers(world)) {
     if (isYearHead) {
       officer.age += 1;

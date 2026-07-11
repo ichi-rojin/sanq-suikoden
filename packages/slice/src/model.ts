@@ -1,4 +1,6 @@
-// 責務: Vertical Slice全域の型定義（武将・勢力・拠点・イベント・世界状態）。固有名詞はdata層に置きsrcはIDのみ扱う
+// 責務: Vertical Slice全域の型定義（武将・勢力・拠点・軍・戦場・イベント・世界状態）。固有名詞はdata層に置きsrcはIDのみ扱う
+// 裁定R-17: 世界はグラフではなく200×200のTileMap。tickは1日。全ての実体はタイル座標を持つ
+import type { CityWalls, WorldGrid, XY } from "./grid";
 import type { Rng } from "./rng";
 
 // ---- 基礎 ----
@@ -48,6 +50,14 @@ export interface Relation {
 
 export type OfficerStatus = "serving" | "roaming" | "free" | "prisoner" | "dead";
 
+// 旅程: 世界をタイル単位で歩む（武将・護送・放浪の一党が共有する移動機構）
+export interface Journey {
+  path: XY[]; // 残りの行程（先頭が次の一歩）
+  dest: PlaceId; // 目的地
+  mp: number; // 蓄積した移動力
+  speed: number; // 1日に得る移動力
+}
+
 export interface Officer {
   id: OfficerId;
   age: number;
@@ -57,8 +67,10 @@ export interface Officer {
   hp: number; // 0..100
   status: OfficerStatus;
   factionId?: FactionId;
-  loc: PlaceId;
+  loc: PlaceId; // 直近に身を置いた拠点（旅の間は出発地のまま）
   homeLoc: PlaceId;
+  pos: XY; // 世界タイル上の現在地
+  journey?: Journey; // 旅の途中なら存在する
   fameOfficial: number; // 官の名声
   fameOutlaw: number; // 江湖の名声
   gold: number;
@@ -80,7 +92,7 @@ export type PlaceKind =
 export interface Place {
   id: PlaceId;
   kind: PlaceKind;
-  gridX: number; // 論理グリッド上の座標（可視化と地理表現に使う）
+  gridX: number; // 世界タイル上の中心座標
   gridY: number;
   wealth: number;
   population: number;
@@ -90,11 +102,14 @@ export interface Place {
   garrison: number; // 駐留兵
   owner?: FactionId;
   devastation: number; // 戦火の傷跡（恒久的な世界変化）
-  terrainForest: number; // 0..1 戦場生成の重み
+  gateHp: number; // 城門の残り強度（城郭都市のみ意味を持つ）
+  gateBroken: boolean;
+  terrainForest: number; // 0..1 周辺地勢の重み（データ由来の趣）
   terrainCliff: number;
   terrainWater: number;
 }
 
+// 街道の骨格（タイル街道を敷くための設計線。移動はタイルで行う）
 export interface Edge {
   from: PlaceId;
   to: PlaceId;
@@ -126,26 +141,106 @@ export interface Faction {
 }
 
 export type ArmyGoal = "invade" | "suppress";
+export type ArmyState = "march" | "fight" | "retreat";
+
+// 軍の一隊: 武将が率いる兵。交戦中は各隊が世界タイル上に散開する
+export interface ArmyUnit {
+  officerId: OfficerId;
+  x: number;
+  y: number;
+  troops: number;
+  troopsMax: number;
+  morale: number;
+  hidden: boolean; // 伏兵として林に潜んでいる
+  tauntTicks: number;
+  tauntTargetId?: OfficerId;
+  routed: boolean;
+  gone: boolean; // 離脱・捕縛・戦死で戦場から消えた
+  usedSkills: SkillId[];
+}
 
 export interface Army {
   id: string;
   factionId: FactionId;
-  officers: OfficerId[];
-  troops: number;
-  loc: PlaceId;
-  path: PlaceId[]; // 残りの行程
+  units: ArmyUnit[];
+  x: number; // 軍旗（行軍時の隊列位置）
+  y: number;
+  mp: number;
+  path: XY[]; // 残りの行程（タイル列）
+  trail: XY[]; // 直近に踏んだタイル（描画の兵列用）
   target: PlaceId;
   goal: ArmyGoal;
+  state: ArmyState;
+  battleId?: string;
   causeEvent: EventId;
 }
 
 // 流刑の護送隊。街道の難所で仲間の奪還が起こり得る
 export interface Convoy {
   prisoner: OfficerId;
-  loc: PlaceId;
-  path: PlaceId[];
+  x: number;
+  y: number;
+  path: XY[];
+  mp: number;
+  dest: PlaceId;
   escortFactionId: FactionId;
   causeEvent: EventId;
+}
+
+// 交戦: 世界そのものが戦場。多勢力が同じ戦場に途中参加・離脱できる
+export interface Battle {
+  id: string;
+  startTick: number;
+  x: number; // 重心（毎日更新。カメラ追跡と描画に使う）
+  y: number;
+  factions: FactionId[];
+  placeId?: PlaceId; // 攻城戦なら対象都市
+  siege: boolean;
+  eventId: EventId;
+  lastClashTick: number;
+  duelPairs: string[]; // 立ち合い済みの対（同じ二人が同じ戦場で二度は立ち合わない）
+}
+
+// 持続する矢の雨（世界タイル上の投射物）
+export interface VolleyField {
+  cells: XY[];
+  left: number;
+  shooterId: OfficerId;
+  factionId: FactionId;
+  causeEvent: EventId;
+}
+
+// 戦場の亡骸（世界に残る痕跡。描画用）
+export interface Corpse {
+  x: number;
+  y: number;
+  tick: number;
+}
+
+// 小窓ドラマ: 世界の中の人間の一幕。世界は止まらず、カメラだけが寄る
+export type DramaKind =
+  | "duel" // 一騎討ち
+  | "oath" // 義兄弟の契り
+  | "execution" // 処刑
+  | "rescue" // 護送の奪還・劫牢
+  | "feast" // 酒宴
+  | "frame" // 冤罪の讒訴
+  | "parley"; // 説得・帰順
+
+export interface DramaBeat {
+  speaker?: OfficerId;
+  key: string; // 台詞鍵（文章化はdata層）
+}
+
+export interface Drama {
+  id: string;
+  tick: number;
+  kind: DramaKind;
+  at: XY;
+  loc?: PlaceId;
+  actors: OfficerId[];
+  eventIds: EventId[];
+  beats: DramaBeat[];
 }
 
 export interface WorldEvent {
@@ -153,6 +248,7 @@ export interface WorldEvent {
   tick: number;
   kind: string;
   loc?: PlaceId;
+  at?: XY; // 世界タイル上の発生地点（拠点の外の出来事を地図に置く）
   actors: OfficerId[];
   factions: FactionId[];
   causes: EventId[]; // 因果保存原則: 全イベントは原因を持ち得る
@@ -160,34 +256,13 @@ export interface WorldEvent {
   sig: number; // 編年史採録の重み
 }
 
-export interface BattleReplayFrame {
-  tick: number;
-  grid: string[]; // 描画済みの各行
-  notes: string[];
-}
-
-// リプレイ盤面の記号と武将の対応（Viewer描画用）
-export interface BattleReplayUnit {
-  glyph: string;
-  officerId: OfficerId;
-  side: 0 | 1;
-}
-
-export interface BattleReplay {
-  id: string;
-  tick: number;
-  loc: PlaceId;
-  attackerFaction: FactionId;
-  defenderFaction: FactionId;
-  siege: boolean;
-  units: BattleReplayUnit[];
-  frames: BattleReplayFrame[];
-  eventIds: EventId[];
-}
-
 export interface World {
-  tick: number;
+  tick: number; // 1 tick = 1日
   rng: Rng;
+  grid: WorldGrid;
+  walls: Map<PlaceId, CityWalls>;
+  cityTiles: Map<number, PlaceId>; // タイルidx → その敷地を持つ拠点（延焼・攻城の帰属判定）
+  wind: XY; // 月ごとに変わる風向（延焼と煙が従う）
   exileDest: PlaceId; // 流刑の護送先
   officers: Map<OfficerId, Officer>;
   factions: Map<FactionId, Faction>;
@@ -195,8 +270,11 @@ export interface World {
   edges: Edge[];
   armies: Army[];
   convoys: Convoy[];
+  battles: Battle[];
+  volleys: VolleyField[];
+  corpses: Corpse[];
   events: WorldEvent[];
-  replays: BattleReplay[];
+  dramas: Drama[];
   counters: Map<string, number>;
 }
 
@@ -213,20 +291,31 @@ export interface NameRegistry {
   monthLabel(month: number): string;
 }
 
+export const DAYS_PER_MONTH = 30;
 export const MONTHS_PER_YEAR = 12;
+export const DAYS_PER_YEAR = DAYS_PER_MONTH * MONTHS_PER_YEAR;
 
 export function yearOf(tick: number): number {
-  return Math.floor(tick / MONTHS_PER_YEAR);
+  return Math.floor(tick / DAYS_PER_YEAR);
 }
 
 export function monthOf(tick: number): number {
-  return (tick % MONTHS_PER_YEAR) + 1;
+  return (Math.floor(tick / DAYS_PER_MONTH) % MONTHS_PER_YEAR) + 1;
+}
+
+export function dayOf(tick: number): number {
+  return (tick % DAYS_PER_MONTH) + 1;
 }
 
 export function nextId(world: World, prefix: string): string {
   const current = world.counters.get(prefix) ?? 0;
   world.counters.set(prefix, current + 1);
   return `${prefix}-${current + 1}`;
+}
+
+export function placePos(world: World, placeId: PlaceId): XY {
+  const place = world.places.get(placeId);
+  return place === undefined ? { x: 0, y: 0 } : { x: place.gridX, y: place.gridY };
 }
 
 export function neighborsOf(world: World, place: PlaceId): PlaceId[] {
@@ -241,7 +330,7 @@ export function neighborsOf(world: World, place: PlaceId): PlaceId[] {
   return result;
 }
 
-// 幅優先で最短経路（出発地を除き到着地を含む）
+// 拠点間の戦略距離（街道の骨格を幅優先。AIの土地勘に使う。実移動はタイル経路）
 export function findPath(world: World, from: PlaceId, to: PlaceId): PlaceId[] {
   if (from === to) {
     return [];
@@ -284,8 +373,11 @@ export function livingOfficers(world: World): Officer[] {
   return [...world.officers.values()].filter((o) => o.status !== "dead");
 }
 
+// その拠点に「腰を落ち着けている」武将（旅の途中の者は含まない）
 export function officersAt(world: World, place: PlaceId): Officer[] {
-  return livingOfficers(world).filter((o) => o.loc === place && o.status !== "prisoner");
+  return livingOfficers(world).filter(
+    (o) => o.loc === place && o.journey === undefined && o.status !== "prisoner",
+  );
 }
 
 export function factionOf(world: World, officer: Officer): Faction | undefined {
@@ -305,6 +397,14 @@ export function factionStrength(world: World, faction: Faction): number {
   const troops = faction.cities.reduce((sum, cid) => sum + (world.places.get(cid)?.garrison ?? 0), 0);
   const bandTroops = faction.cities.length === 0 ? faction.members.length * 60 : 0;
   return officerPower * 10 + troops + bandTroops;
+}
+
+export function armyOfficerIds(army: Army): OfficerId[] {
+  return army.units.map((u) => u.officerId);
+}
+
+export function armyTroops(army: Army): number {
+  return army.units.reduce((sum, u) => sum + (u.gone ? 0 : u.troops), 0);
 }
 
 export function getRelation(officer: Officer, target: OfficerId): Relation {

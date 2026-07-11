@@ -1,7 +1,7 @@
 // 責務: 観測系の出力整形。世界の状態と物語を読み物として組む（名前と語りはdata層のkit経由で解決）
 import { annalsOf, biographyOf, relationDigest } from "./chronicle";
 import type { Story, StoryKind } from "./chronicle";
-import type { BattleReplay, NameRegistry, World, WorldEvent } from "./model";
+import type { NameRegistry, World, WorldEvent } from "./model";
 import { monthOf, yearOf } from "./model";
 
 export interface StoryTitleParamsLike {
@@ -152,25 +152,21 @@ export function renderRelations(world: World, kit: TextKit): string[] {
   return lines;
 }
 
-export function renderReplay(replay: BattleReplay, world: World, kit: TextKit): string[] {
-  const byId = new Map(world.events.map((e) => [e.id, e]));
+// 戦役絵巻: 開戦（遭遇・攻囲）を核に、その戦場で起きた現象を時系列で読む
+export function renderCampaign(world: World, index: number, kit: TextKit): string[] {
+  const openings = world.events.filter((e) => e.kind === "war.encounter" || e.kind === "war.siege");
+  const opening = openings[index];
+  if (opening === undefined) {
+    return ["", `（第${index + 1}の戦役は記録に無い）`];
+  }
+  const related = world.events.filter((e) => e.causes.includes(opening.id));
   const lines: string[] = [
     "",
-    `━━━ 合戦絵巻: ${kit.names.place(replay.loc)}（${timeLabel(kit, replay.tick)}） ━━━`,
-    `  寄せ手: ${kit.names.faction(replay.attackerFaction)}　守り手: ${kit.names.faction(replay.defenderFaction)}`,
+    `━━━ 戦役絵巻 其の${index + 1}（${timeLabel(kit, opening.tick)}） ━━━`,
+    `  ${kit.narrate(opening)}`,
   ];
-  const interesting = replay.frames.filter((f, i) => f.notes.length > 0 || i === 0 || i === replay.frames.length - 1);
-  for (const frame of interesting.slice(0, 12)) {
-    lines.push("", `  ─ 第${frame.tick + 1}刻 ─`);
-    for (const row of frame.grid) {
-      lines.push(`  ${row}`);
-    }
-    for (const noteId of frame.notes) {
-      const event = byId.get(noteId);
-      if (event !== undefined) {
-        lines.push(`  ※ ${kit.narrate(event)}`);
-      }
-    }
+  for (const event of related.slice(0, 40)) {
+    lines.push(`  ${timeLabel(kit, event.tick)}　${kit.narrate(event)}`);
   }
   return lines;
 }
