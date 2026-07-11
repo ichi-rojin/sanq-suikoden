@@ -54,6 +54,10 @@ function tileCenter(x: number, y: number): { x: number; y: number } {
   return { x: x * CELL + CELL / 2, y: y * CELL + CELL / 2 };
 }
 
+// 「1マス進む→一瞬停止→周囲を確認→次の一歩」のテンポ。1日の実時間のうち歩みに使うのは一部だけで、
+// 残りは静止する——滑らかな等速Tweenではなく、考えながら進軍している間として見える
+const MOVE_PORTION = 0.5;
+
 function retarget(s: MoveState, nx: number, ny: number, dur: number): void {
   if (s.toX === nx && s.toY === ny) {
     return; // 目的地が変わらないなら動かさない（足踏み中）
@@ -63,7 +67,21 @@ function retarget(s: MoveState, nx: number, ny: number, dur: number): void {
   s.toX = nx;
   s.toY = ny;
   s.t = 0;
-  s.dur = Math.max(1, dur);
+  s.dur = Math.max(1, dur * MOVE_PORTION);
+}
+
+// 一隊を単一の点ではなく、小さな兵の集まりとして描く（軍隊らしさ・戦線らしさのための隊列表現）
+function drawFormation(g: Graphics, seedKey: string, color: number, troops: number): void {
+  const count = Math.max(3, Math.min(8, Math.round(troops / 130) + 2));
+  for (let i = 0; i < count; i += 1) {
+    const angle = decoRand(seedKey, i * 2) * Math.PI * 2;
+    const radius = 1.6 + decoRand(seedKey, i * 2 + 1) * 3.4;
+    const dx = Math.cos(angle) * radius;
+    const dy = Math.sin(angle) * radius * 0.75;
+    const size = 1.1 + decoRand(seedKey, i + 40) * 0.7;
+    g.circle(dx, dy, size).fill(color).stroke({ width: 0.6, color: 0x0d0a07 });
+  }
+  g.circle(0, 0, 0.9).fill(0xffe9c0); // 将旗（隊の中心。指揮官の位置）
 }
 
 function snapTo(s: MoveState, x: number, y: number): void {
@@ -81,6 +99,7 @@ export class WorldView {
   readonly root = new Container();
   private readonly trailG = new Graphics(); // 行軍の足跡と進軍矢線
   private readonly corpseG = new Graphics(); // 世界に残る亡骸
+  private readonly siegeG = new Graphics(); // 攻囲される都市を囲う輪
   private readonly placeLayer = new Container();
   private readonly armyLayer = new Container();
   private readonly officerLayer = new Container();
@@ -112,6 +131,7 @@ export class WorldView {
     private readonly names: NameRegistry,
   ) {
     this.root.addChild(this.trailG);
+    this.root.addChild(this.siegeG);
     this.root.addChild(this.corpseG);
     this.root.addChild(this.placeLayer);
     this.root.addChild(this.armyLayer);
@@ -421,8 +441,7 @@ export class WorldView {
             us.dot.circle(0, 0, 3.6).stroke({ width: 1, color, alpha: 0.35 });
             us.label.alpha = 0.3;
           } else {
-            const troopRing = Math.max(2.6, Math.min(5, 2.4 + unit.troops / 260));
-            us.dot.circle(0, 0, troopRing).fill(color).stroke({ width: 1.2, color: 0x0d0a07 });
+            drawFormation(us.dot, key, color, unit.troops);
             if (unit.routed) {
               us.dot.moveTo(-4, -4).lineTo(4, 4).stroke({ width: 1.4, color: 0x000000, alpha: 0.7 });
             }
@@ -514,6 +533,26 @@ export class WorldView {
         mark.destroy();
         this.battleMarks.delete(id);
       }
+    }
+  }
+
+  // 攻囲される都市の周りに輪を描く（遠目にも「今どこが囲まれているか」がひと目で分かる）
+  private redrawSieges(): void {
+    this.siegeG.clear();
+    for (const battle of this.world.battles) {
+      if (!battle.siege || battle.placeId === undefined) {
+        continue;
+      }
+      const place = this.world.places.get(battle.placeId);
+      if (place === undefined) {
+        continue;
+      }
+      const center = tileCenter(place.gridX, place.gridY);
+      const attackerColor = factionColor(
+        this.world.armies.find((a) => a.battleId === battle.id && a.target === battle.placeId)?.factionId,
+      );
+      const radius = 16 + Math.sin(this.flicker / 260) * 2;
+      this.siegeG.circle(center.x, center.y, radius).stroke({ width: 1.6, color: attackerColor, alpha: 0.55 });
     }
   }
 
@@ -613,6 +652,7 @@ export class WorldView {
   // ---- 毎フレーム: 等速直線移動の補間と持続現象（炎・煙・矢の雨） ----
   update(deltaMS: number): void {
     this.flicker += deltaMS;
+    this.redrawSieges();
     const advance = (s: MoveState): void => {
       if (s.t >= s.dur) {
         return;

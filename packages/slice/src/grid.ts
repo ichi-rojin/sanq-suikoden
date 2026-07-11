@@ -9,12 +9,12 @@ export interface XY {
 // 地形コード（Uint8Array格納）
 export const T = {
   plain: 0,
-  road: 1, // 街道: 最速の地表
-  forest: 2,
+  road: 1, // 街道: 最速の地表（軍の主用路ではあるが、それだけの意味しか持たない）
+  forest: 2, // 延焼しやすく、伏兵しやすく、視界が悪い
   mountain: 3, // 通行不能。関の回廊（road化）でのみ越えられる
   river: 4, // 通行不能。渡し場（ford）でのみ越えられる
-  ford: 5, // 渡河点
-  marsh: 6, // 水郷: 遅いが通れる
+  ford: 5, // 渡河点。渡河そのものに時を要する
+  marsh: 6, // 水郷: 移動が大きく鈍る
   dry: 7, // 乾地・砂漠
   sea: 8, // 海: 通行不能
   city: 9, // 都市の敷地
@@ -22,6 +22,7 @@ export const T = {
   gate: 11, // 城門・関門: 開いていれば通れる
   burnt: 12, // 焼け跡（延焼の恒久痕。時とともに癒える）
   rubble: 13, // 瓦礫（崖崩れ・崩壁。道を塞ぐ）
+  hill: 14, // 丘陵: 進みは鈍るが、拠って守れば固い
 } as const;
 
 export type TerrainCode = (typeof T)[keyof typeof T];
@@ -33,7 +34,7 @@ const MOVE_COST: Record<number, number> = {
   [T.forest]: 1.15,
   [T.mountain]: Number.POSITIVE_INFINITY,
   [T.river]: Number.POSITIVE_INFINITY,
-  [T.ford]: 0.8,
+  [T.ford]: 0.95, // 渡河は徒歩よりなお遅い
   [T.marsh]: 1.4,
   [T.dry]: 0.75,
   [T.sea]: Number.POSITIVE_INFINITY,
@@ -42,6 +43,7 @@ const MOVE_COST: Record<number, number> = {
   [T.gate]: 0.6,
   [T.burnt]: 0.65,
   [T.rubble]: Number.POSITIVE_INFINITY,
+  [T.hill]: 0.95,
 };
 
 export function moveCostOf(t: number): number {
@@ -70,6 +72,25 @@ export function burnRate(t: number): number {
     default:
       return 0;
   }
+}
+
+// 地形の防御性格: 拠る地形が与える防御倍率（1.0=無補正、大きいほど被害が減る）
+export function terrainDefenseMul(t: number): number {
+  switch (t) {
+    case T.hill:
+      return 1.35; // 丘陵に拠れば固い
+    case T.forest:
+      return 1.15; // 木立が刃を鈍らせる
+    case T.marsh:
+      return 0.9; // 足場が悪く受けが甘くなる
+    default:
+      return 1;
+  }
+}
+
+// 地形の視界性格: この地形に居る（または隣接する）部隊は発見されにくい
+export function terrainConceals(t: number): boolean {
+  return t === T.forest;
 }
 
 export interface Scar {
@@ -293,7 +314,7 @@ class Heap {
 const DIRS: ReadonlyArray<[number, number]> = [
   [1, 0], [-1, 0], [0, 1], [0, -1],
 ];
-const MIN_STEP_COST = 0.2; // 街道コスト(0.34)を下回るヒューリスティック下限（A*の許容性を保つ）
+const MIN_STEP_COST = 0.32; // 街道コスト(0.34)にごく近いヒューリスティック下限（A*の許容性を保ちつつ探索を絞る）
 
 export type TileCostFn = (t: number, x: number, y: number) => number;
 
@@ -441,7 +462,7 @@ export function chebyshev(a: XY, b: XY): number {
 // ---- 世界地形の組み立て ----
 
 export interface GeoFeatureLike {
-  kind: "river" | "canal" | "ridge" | "forest" | "marsh";
+  kind: "river" | "canal" | "ridge" | "forest" | "marsh" | "hill";
   points: Array<[number, number]>;
   width?: number;
   radius?: number;
@@ -479,8 +500,14 @@ const WALLED_KINDS = new Set(["capital", "county", "manor"]);
 export function buildGrid(seed: GridSeed): BuiltGrid {
   const grid = new WorldGrid(seed.w, seed.h);
 
-  // 1) 乾地 → 森 → 山 → 水郷 → 河川 → 海 の順に地相を重ねる
+  // 1) 乾地 → 丘陵 → 森 → 山 → 水郷 → 河川 → 海 の順に地相を重ねる
   fillPolygon(grid, seed.desert, T.dry);
+  for (const f of seed.geo) {
+    if (f.kind === "hill") {
+      const [cx, cy] = f.points[0] as [number, number];
+      stampDisc(grid, cx, cy, f.radius ?? 6, T.hill);
+    }
+  }
   for (const f of seed.geo) {
     if (f.kind === "forest") {
       const [cx, cy] = f.points[0] as [number, number];

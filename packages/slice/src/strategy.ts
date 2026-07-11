@@ -28,11 +28,17 @@ import {
 
 const ARMY_SPEED = 0.75; // 兵站を引きずる軍の1日移動力
 const CONVOY_SPEED = 0.4; // 枷をはめられた護送の足取り
+const MAX_CONCURRENT_ARMIES = 3; // 一勢力が同時に出せる軍の数（複数の戦線を同時に持てる）
+const REINFORCE_RANGE = 44; // 友軍の戦場をこの距離まで感知し、駆けつけを検討する
 
 function membersOf(world: World, faction: Faction): Officer[] {
   return faction.members
     .map((id) => world.officers.get(id))
     .filter((o): o is Officer => o !== undefined && o.status !== "dead");
+}
+
+function armyCountOf(world: World, factionId: string): number {
+  return world.armies.reduce((n, a) => (a.factionId === factionId ? n + 1 : n), 0);
 }
 
 function fieldedMembers(world: World, faction: Faction): Officer[] {
@@ -57,9 +63,37 @@ export function armyPathTo(world: World, factionId: string, from: XY, to: XY): X
         }
       }
     }
+    if (world.grid.fires.has(world.grid.idx(x, y))) {
+      return moveCostOf(t) * 6; // 燃える地は避けて通る（已む無ければ通る）
+    }
     return moveCostOf(t);
   };
   return findTilePath(world.grid, from, to, costFn);
+}
+
+// 日次の現場判断: 命令（戦略目標）を鵜呑みにせず、行く手の火や近くの友軍の危機を見て進路を更新する
+export function stepFieldJudgment(world: World, army: Army): void {
+  if (army.state !== "march" || army.path.length === 0) {
+    return;
+  }
+  // 行く手に火の手が見える: 経路を引き直させる（fire-avoidanceのcostFnが自然に迂回させる）
+  const next = army.path[0] as XY;
+  if (world.grid.fires.has(world.grid.idx(next.x, next.y))) {
+    army.path = [];
+    return;
+  }
+  // 近くで自勢力が戦っていれば、駆けつけを検討する（命令より現場の急を優先する）
+  const nearBattle = world.battles.find(
+    (b) => b.factions.includes(army.factionId) && chebyshev(army, b) <= REINFORCE_RANGE,
+  );
+  if (nearBattle === undefined || nearBattle.placeId === army.target) {
+    return;
+  }
+  const underAttack = nearBattle.placeId !== undefined && world.places.get(nearBattle.placeId)?.owner === army.factionId;
+  if (underAttack && world.rng.chance(0.6)) {
+    army.target = nearBattle.placeId as string;
+    army.path = [];
+  }
 }
 
 // ---- 世界の揺らぎ: 天災と収奪（月次） ----
@@ -194,7 +228,7 @@ function courtStrategy(world: World, faction: Faction, leader: Officer): void {
       return heat >= 50 && enemy !== undefined && enemy.fallenTick === undefined && enemy.cities.length > 0;
     })
     .sort((a, b) => b[1] - a[1])[0];
-  if (vendetta !== undefined && world.armies.every((a) => a.factionId !== faction.id) && rng.chance(0.45)) {
+  if (vendetta !== undefined && armyCountOf(world, faction.id) < MAX_CONCURRENT_ARMIES && rng.chance(0.45)) {
     const enemy = world.factions.get(vendetta[0]);
     if (enemy !== undefined && factionStrength(world, faction) > factionStrength(world, enemy) * 1.15) {
       const weakest = enemy.cities
@@ -220,7 +254,7 @@ function courtStrategy(world: World, faction: Faction, leader: Officer): void {
   if (
     strongest !== undefined &&
     factionStrength(world, strongest) > 1400 &&
-    world.armies.every((a) => a.factionId !== faction.id) &&
+    armyCountOf(world, faction.id) < MAX_CONCURRENT_ARMIES &&
     rng.chance(0.35)
   ) {
     faction.policy = "suppress";
@@ -249,7 +283,7 @@ function lordStrategy(world: World, faction: Faction, leader: Officer): void {
     .filter(([fid, heat]) => heat >= 40 && world.factions.get(fid)?.fallenTick === undefined)
     .sort((a, b) => b[1] - a[1]);
   const targetEntry = feuds[0];
-  if (targetEntry !== undefined && world.armies.every((a) => a.factionId !== faction.id)) {
+  if (targetEntry !== undefined && armyCountOf(world, faction.id) < MAX_CONCURRENT_ARMIES) {
     const enemy = world.factions.get(targetEntry[0]);
     if (enemy !== undefined) {
       const targetPlace = enemy.cities[0] ?? enemy.loc;
@@ -266,7 +300,7 @@ function lordStrategy(world: World, faction: Faction, leader: Officer): void {
   }
   // 野心と血気が領主を戦へ駆り立てる
   if (
-    world.armies.every((a) => a.factionId !== faction.id) &&
+    armyCountOf(world, faction.id) < MAX_CONCURRENT_ARMIES &&
     rng.chance((leader.values.ambition + leader.values.aggression) / 350)
   ) {
     const adjacencies = faction.cities.flatMap((c) => neighborsOf(world, c));
@@ -306,7 +340,7 @@ function outlawStrategy(world: World, faction: Faction, leader: Officer): void {
     weakest !== undefined &&
     factionStrength(world, faction) > (weakest.garrison + weakest.defense * 8) * 1.35 &&
     leader.values.ambition + leader.values.aggression >= 90 &&
-    world.armies.every((a) => a.factionId !== faction.id) &&
+    armyCountOf(world, faction.id) < MAX_CONCURRENT_ARMIES &&
     rng.chance(0.5)
   ) {
     faction.policy = "expand";
@@ -468,7 +502,7 @@ function launchArmy(world: World, faction: Faction, target: string, goal: Army["
     .filter((o) => o.id !== faction.leader || faction.kind === "outlaw" || faction.kind === "roaming")
     .filter((o) => o.journey === undefined)
     .sort((a, b) => powerOf(b) - powerOf(a));
-  const officers = candidates.slice(0, 5);
+  const officers = candidates.slice(0, 12);
   if (officers.length === 0) {
     return;
   }
@@ -479,7 +513,7 @@ function launchArmy(world: World, faction: Faction, target: string, goal: Army["
   if (source === undefined) {
     return;
   }
-  const troops = Math.min(2000, Math.floor(source.garrison * 0.65));
+  const troops = Math.min(3600, Math.floor(source.garrison * 0.65));
   if (troops < 250) {
     return;
   }
@@ -530,6 +564,7 @@ export function stepArmies(world: World, names: NameRegistry): void {
     if (army.battleId !== undefined || army.state === "fight") {
       continue; // 戦場に居る
     }
+    stepFieldJudgment(world, army); // 毎日、行く手の火・友軍の急を見て命令を現場で更新する
     const targetPlace = world.places.get(army.target);
     if (targetPlace === undefined) {
       disbandArmy(world, army);

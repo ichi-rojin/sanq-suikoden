@@ -156,7 +156,7 @@ export interface ArmyUnit {
   tauntTargetId?: OfficerId;
   routed: boolean;
   gone: boolean; // 離脱・捕縛・戦死で戦場から消えた
-  usedSkills: SkillId[];
+  skillCooldowns: Map<SkillId, number>; // 技→再使用可能になるtick（多日にわたる攻城戦でも技が涸れない）
 }
 
 export interface Army {

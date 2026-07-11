@@ -192,6 +192,49 @@ export const PLACE_SEEDS: PlaceSeed[] = [
   port("mingzhou", "明州港", 174, 128),
   port("dongting", "洞庭渡", 107, 128),
   port("qichun", "蘄春渡", 126, 121),
+  // ===== 増拠点（裁定R-19: 拠点密度を拡大し、複数の戦線が同時に生まれる余地を作る） =====
+  // ---- 新規都市 ----
+  city("xuanhua", "宣化", 128, 18, 3, { owner: C, cliff: 0.15 }),
+  city("fenzhou", "汾州", 94, 58, 3, { owner: "tianhu", garrison: 1300, cliff: 0.15 }),
+  city("suide", "綏徳", 68, 46, 3, { owner: C, cliff: 0.1 }),
+  city("qingyang", "慶陽", 48, 64, 3, { owner: C, cliff: 0.12 }),
+  city("shangzhou", "商州", 88, 96, 3, { owner: "wangqing", garrison: 1300, cliff: 0.15 }),
+  city("runing", "汝寧", 118, 100, 3, { owner: C }),
+  city("haizhou", "海州", 156, 88, 3, { owner: C, water: 0.15 }),
+  city("huzhou", "湖州", 150, 116, 3, { owner: C, water: 0.2 }),
+  city("raozhou", "饒州", 142, 132, 3, { owner: C, forest: 0.2 }),
+  city("yuezhou", "岳州", 112, 130, 3, { owner: C, water: 0.2 }),
+  city("zunyi", "遵義", 68, 140, 3, { owner: C, cliff: 0.2, forest: 0.2 }),
+  city("bozhou", "播州", 82, 150, 3, { owner: C, cliff: 0.15, forest: 0.2 }),
+  city("chaozhou", "潮州", 128, 164, 3, { owner: C, water: 0.15, forest: 0.15 }),
+  city("mianzhou", "綿州", 48, 104, 3, { owner: C, cliff: 0.1 }),
+  // ---- 新規村鎮・荘園 ----
+  town("pingyang", "平陽鎮", 116, 66, C),
+  town("anlu", "安陸鎮", 100, 110, C),
+  manor("linjiang", "臨江荘", 96, 118, C),
+  manor("hedong", "河東荘", 76, 116, "wangqing"),
+  // ---- 新規山寨・水泊 ----
+  lair("heilong", "黒龍岡", 94, 66),
+  lair("wuliang", "五龍山", 146, 140),
+  lair("jiuwan", "九湾水泊", 108, 132, true),
+  lair("tiegang", "鉄崗寨", 76, 146),
+  // ---- 新規関 ----
+  pass("lengkou", "冷口関", 102, 56, 0.3),
+  pass("longguan", "隴関", 52, 72, 0.3),
+  pass("wuguan", "武関", 96, 90, 0.3),
+  pass("niangzi", "娘子関", 112, 58, 0.3),
+  pass("feihu", "飛狐関", 140, 26, 0.35),
+  pass("micang", "米倉関", 72, 108, 0.4),
+  pass("yuecheng", "越城嶺", 100, 158, 0.45),
+  pass("loushan", "婁山関", 74, 144, 0.45),
+  pass("fenshui", "分水関", 148, 144, 0.4),
+  // ---- 新規港 ----
+  port("yuguan", "楡関渡", 150, 24),
+  port("laohekou", "老河口渡", 90, 104),
+  port("chenglingji", "城陵磯渡", 104, 124),
+  port("huaian", "淮安渡", 148, 98),
+  port("wubu", "呉埠渡", 56, 120),
+  port("jiangkou", "江口渡", 160, 118),
 ];
 
 const E = (from: string, to: string): Edge => ({ from, to });
@@ -239,10 +282,36 @@ export const EDGE_SEEDS: Edge[] = [
   E("tanzhou", "guizhou"), E("guizhou", "guangzhou"), E("tanzhou", "hongzhou"),
   E("muzhou", "xianxia"), E("xianxia", "fuzhou"), E("fuzhou", "quanzhou"),
   E("quanzhou", "guangzhou"),
+  // ===== 増拠点の街道（裁定R-19） =====
+  E("xuanhua", "youzhou"), E("xuanhua", "feihu"), E("feihu", "zhending"), E("yuguan", "youzhou"), E("yuguan", "xuanhua"),
+  E("fenzhou", "taiyuan"), E("fenzhou", "weisheng"), E("fenzhou", "lengkou"), E("lengkou", "yanan"),
+  E("suide", "yanan"), E("suide", "fenzhou"),
+  E("qingyang", "yanan"), E("qingyang", "longguan"), E("longguan", "changan"),
+  E("shangzhou", "changan"), E("shangzhou", "wuguan"), E("wuguan", "nanyang"),
+  E("runing", "nanyang"), E("runing", "yingtian"),
+  E("haizhou", "yizhou"), E("haizhou", "chuzhou"),
+  E("huzhou", "suzhou"), E("huzhou", "hangzhou"), E("huzhou", "jiangkou"), E("jiangkou", "guazhou"),
+  E("raozhou", "hongzhou"), E("raozhou", "shezhou"), E("raozhou", "wuliang"), E("wuliang", "shezhou"),
+  E("yuezhou", "jiangling"), E("yuezhou", "tanzhou"), E("yuezhou", "chenglingji"), E("chenglingji", "dongting"),
+  E("yuezhou", "jiuwan"), E("jiuwan", "dongting"), E("yuezhou", "linjiang"), E("linjiang", "jiangling"),
+  E("zunyi", "yuzhou"), E("zunyi", "loushan"), E("loushan", "bozhou"), E("bozhou", "guizhou"),
+  E("bozhou", "tiegang"), E("tiegang", "zunyi"),
+  E("chaozhou", "quanzhou"), E("chaozhou", "fuzhou"),
+  E("mianzhou", "chengdu"), E("mianzhou", "zizhou"), E("mianzhou", "wubu"), E("wubu", "chengdu"),
+  E("niangzi", "taiyuan"), E("niangzi", "gaotang"),
+  E("micang", "hanzhong"), E("micang", "fangzhou"),
+  E("yuecheng", "tanzhou"), E("yuecheng", "guizhou"),
+  E("fenshui", "shezhou"), E("fenshui", "fuzhou"),
+  E("laohekou", "xiangyang"), E("laohekou", "shangzhou"),
+  E("huaian", "chuzhou"), E("huaian", "luzhou"),
+  E("pingyang", "jizhou"), E("pingyang", "yuncheng"),
+  E("anlu", "xiangyang"), E("anlu", "shangzhou"),
+  E("hedong", "xiangyang"), E("hedong", "fangzhou"),
+  E("heilong", "taiyuan"), E("heilong", "gaotang"),
 ];
 
 // ---- 地勢（Viewerのタイル地形描画用） ----
-export type GeoKind = "river" | "canal" | "ridge" | "forest" | "marsh";
+export type GeoKind = "river" | "canal" | "ridge" | "forest" | "marsh" | "hill";
 
 export interface GeoFeature {
   kind: GeoKind;
@@ -297,6 +366,17 @@ export const GEO_FEATURES: GeoFeature[] = [
   { kind: "forest", radius: 4, points: pts([[86, 62]]) },
   // 水泊
   { kind: "marsh", radius: 4, points: pts([[136, 70]]) },
+  // 丘陵（山脈の裾野。防御に拠りやすく、進みは鈍る）
+  { kind: "hill", radius: 8, points: pts([[120, 52]]) }, // 太行裾野
+  { kind: "hill", radius: 7, points: pts([[96, 60]]) }, // 呂梁裾野
+  { kind: "hill", radius: 8, points: pts([[70, 88]]) }, // 秦嶺裾野
+  { kind: "hill", radius: 6, points: pts([[48, 70]]) }, // 隴山裾野
+  { kind: "hill", radius: 7, points: pts([[66, 110]]) }, // 大巴裾野
+  { kind: "hill", radius: 8, points: pts([[46, 118]]) }, // 蜀西裾野
+  { kind: "hill", radius: 7, points: pts([[100, 156]]) }, // 南嶺裾野
+  { kind: "hill", radius: 6, points: pts([[150, 138]]) }, // 武夷裾野
+  { kind: "hill", radius: 6, points: pts([[140, 22]]) }, // 燕山裾野
+  { kind: "hill", radius: 6, points: pts([[150, 72]]) }, // 泰山裾野
 ];
 
 // 海岸線（この線の東・南は海。北から南へ）

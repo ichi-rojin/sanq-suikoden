@@ -3,7 +3,7 @@
 import { emit } from "./events";
 import { disbandArmy, handleCaptive, killOfficer, resolveCityFall } from "./fate";
 import type { XY } from "./grid";
-import { T, burnRate, chebyshev, isFlammable, stepOneTile } from "./grid";
+import { T, burnRate, chebyshev, isFlammable, stepOneTile, terrainConceals, terrainDefenseMul } from "./grid";
 import type {
   Army,
   ArmyUnit,
@@ -18,9 +18,20 @@ import type {
 import { armyTroops, nextId, placePos } from "./model";
 import type { Rng } from "./rng";
 
-const ENGAGE_RANGE = 6; // この距離まで近づいた敵対軍は交戦に入る
+const ENGAGE_RANGE = 6; // この距離まで近づいた敵対軍は交戦に入る（森に潜む敵はこれより見つかりにくい）
 const SIEGE_RANGE = 3; // 城への攻撃開始距離
 const FLEE_ESCAPE = 9; // 敗走兵がこの距離まで逃げれば戦場を離れる
+
+// 技の再発動までの日数。多日にわたる攻城戦でも戦場が技で荒れ続けるよう、一度きりではなく巡り直す
+const SKILL_COOLDOWN: Record<SkillId, number> = {
+  taunt: 5,
+  volley: 3,
+  fire: 6,
+  sorcery: 6,
+  rockfall: 8,
+  ambush: 10,
+  charge: 3,
+};
 
 interface UnitRef {
   army: Army;
@@ -74,40 +85,62 @@ function unitAt(refs: UnitRef[], x: number, y: number): UnitRef | undefined {
   return refs.find((r) => !r.unit.gone && r.unit.x === x && r.unit.y === y);
 }
 
-function damageUnit(ref: UnitRef, lossRatio: number, moraleHit: number): void {
-  const loss = Math.floor(ref.unit.troops * lossRatio);
+// 地形は通行可否だけではない。丘陵に拠れば固く、森は刃を鈍らせ、湿地は足を取られる
+function damageUnit(world: World, ref: UnitRef, lossRatio: number, moraleHit: number): void {
+  const defenseMul = terrainDefenseMul(world.grid.at(ref.unit.x, ref.unit.y));
+  const adjRatio = lossRatio / defenseMul;
+  const loss = Math.floor(ref.unit.troops * adjRatio);
   ref.unit.troops = Math.max(0, ref.unit.troops - loss);
-  ref.unit.morale -= moraleHit + (loss / Math.max(1, ref.unit.troopsMax)) * 40;
-  ref.officer.hp = Math.max(0, ref.officer.hp - Math.floor(lossRatio * 12));
+  ref.unit.morale -= moraleHit / defenseMul + (loss / Math.max(1, ref.unit.troopsMax)) * 40;
+  ref.officer.hp = Math.max(0, ref.officer.hp - Math.floor(adjRatio * 12));
 }
 
 // ---- 軍の展開と参戦 ----
 
-// 軍旗の周囲へ各隊を散開させる
+// 中心から外周へ広がるリング状の候補地（大部隊が道の上に整列せず、戦場全体へ展開するための下地）
+function scatterOffsets(rng: Rng, maxRadius: number): Array<[number, number]> {
+  const offsets: Array<[number, number]> = [[0, 0]];
+  for (let r = 1; r <= maxRadius; r += 1) {
+    const ring: Array<[number, number]> = [];
+    for (let dx = -r; dx <= r; dx += 1) {
+      for (let dy = -r; dy <= r; dy += 1) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === r) {
+          ring.push([dx, dy]);
+        }
+      }
+    }
+    offsets.push(...rng.shuffle(ring));
+  }
+  return offsets;
+}
+
+// 軍旗の周囲へ各隊を散開させる。道の上に整列させず、平地・丘陵・森など戦場全体へ広く展開する
 export function deployUnits(world: World, army: Army): void {
-  const offsets: Array<[number, number]> = [
-    [0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1], [2, 0], [-2, 0], [0, 2],
-  ];
-  let cursor = 0;
+  const offsets = scatterOffsets(world.rng, 8);
+  const occupied = new Set<string>();
+  const findSpot = (avoidRoad: boolean): XY | undefined => {
+    for (const [dx, dy] of offsets) {
+      const x = army.x + dx;
+      const y = army.y + dy;
+      const key = `${x},${y}`;
+      if (occupied.has(key) || !world.grid.passable(x, y)) {
+        continue;
+      }
+      if (avoidRoad && world.grid.at(x, y) === T.road) {
+        continue;
+      }
+      return { x, y };
+    }
+    return undefined;
+  };
   for (const unit of army.units) {
     if (unit.gone) {
       continue;
     }
-    for (; cursor < offsets.length; cursor += 1) {
-      const [dx, dy] = offsets[cursor] as [number, number];
-      const x = army.x + dx;
-      const y = army.y + dy;
-      if (world.grid.passable(x, y)) {
-        unit.x = x;
-        unit.y = y;
-        cursor += 1;
-        break;
-      }
-    }
-    if (cursor >= offsets.length) {
-      unit.x = army.x;
-      unit.y = army.y;
-    }
+    const spot = findSpot(true) ?? findSpot(false) ?? { x: army.x, y: army.y };
+    unit.x = spot.x;
+    unit.y = spot.y;
+    occupied.add(`${spot.x},${spot.y}`);
   }
 }
 
@@ -124,7 +157,7 @@ export function makeUnits(officers: Officer[], troops: number): ArmyUnit[] {
     tauntTicks: 0,
     routed: false,
     gone: false,
-    usedSkills: [],
+    skillCooldowns: new Map(),
   }));
 }
 
@@ -173,7 +206,7 @@ function raiseGarrison(world: World, place: Place, battle: Battle, names: NameRe
         !inArmies.has(o.id),
     )
     .sort((a, b) => b.aptitudes.leadership - a.aptitudes.leadership)
-    .slice(0, 6);
+    .slice(0, 12);
   if (defenders.length === 0) {
     return; // 采配なき籠城: 城壁と城兵だけで抗う
   }
@@ -209,7 +242,10 @@ export function detectBattles(world: World, names: NameRegistry): void {
       if (!hostile(a, b)) {
         continue;
       }
-      if (chebyshev(a, b) > ENGAGE_RANGE) {
+      // 森に潜む軍は見つかりにくい（視界が悪い）
+      const concealed = terrainConceals(world.grid.at(a.x, a.y)) || terrainConceals(world.grid.at(b.x, b.y));
+      const engageRange = concealed ? Math.max(2, ENGAGE_RANGE - 3) : ENGAGE_RANGE;
+      if (chebyshev(a, b) > engageRange) {
         continue;
       }
       const existing =
@@ -311,7 +347,7 @@ export function stepFires(world: World): void {
         if (unit.x === x && unit.y === y) {
           const officer = world.officers.get(unit.officerId);
           if (officer !== undefined) {
-            damageUnit({ army, unit, officer }, 0.09, 12);
+            damageUnit(world, { army, unit, officer }, 0.09, 12);
             if (fire.igniterId !== undefined && fire.igniterId !== unit.officerId && rng.chance(0.35)) {
               emit(world, {
                 kind: "clash.burn",
@@ -456,7 +492,7 @@ export function stepVolleys(world: World): void {
           if (!direct && !rng.chance(0.3)) {
             continue;
           }
-          damageUnit({ army, unit, officer }, direct ? 0.05 : 0.03, direct ? 6 : 4);
+          damageUnit(world, { army, unit, officer }, direct ? 0.05 : 0.03, direct ? 6 : 4);
           if (!direct) {
             emit(world, {
               kind: "clash.stray",
@@ -589,8 +625,8 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
       const blocker = unitAt(refs, nx, ny);
       if (blocker !== undefined) {
         into = blocker.army.factionId === attacker.army.factionId ? "ally" : "unit";
-        damageUnit(blocker, 0.06, 8);
-        damageUnit(target, 0.06, 8);
+        damageUnit(world, blocker, 0.06, 8);
+        damageUnit(world, target, 0.06, 8);
         // 将棋倒し: 突き当たった隊も、その先が空いていれば共に押し出される
         const bx = blocker.unit.x + pushX;
         const by = blocker.unit.y + pushY;
@@ -612,7 +648,7 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
       }
       const t = world.grid.at(nx, ny);
       if (t === T.wall || t === T.mountain || t === T.rubble) {
-        damageUnit(target, 0.05, 6);
+        damageUnit(world, target, 0.05, 6);
         into = "wall";
         break;
       }
@@ -637,7 +673,7 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
       [causeId],
     );
     if (into === "water") {
-      damageUnit(target, 0.28, 30);
+      damageUnit(world, target, 0.28, 30);
       emitB("clash.drown", [target.officer.id], { x: target.unit.x, y: target.unit.y }, { victim: target.officer.id }, [kbId]);
       // 岸へ這い上がる
       const back = { x: target.unit.x - pushX, y: target.unit.y - pushY };
@@ -646,7 +682,7 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
         target.unit.y = back.y;
       }
     } else if (into === "fire") {
-      damageUnit(target, 0.18, 22);
+      damageUnit(world, target, 0.18, 22);
       emitB(
         "clash.burn",
         [target.officer.id],
@@ -739,7 +775,7 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
     } else {
       loser.officer.hp = Math.max(1, loser.officer.hp - 35);
       loser.unit.morale -= 25;
-      damageUnit(loser, 0.08, 10);
+      damageUnit(world, loser, 0.08, 10);
     }
   };
 
@@ -755,10 +791,9 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
       duel(me, target);
       return;
     }
-    const guard = world.grid.at(target.unit.x, target.unit.y) === T.forest ? 0.75 : 1;
-    const ratio = (0.05 + me.officer.aptitudes.valor * 0.0007) * guard * (me.unit.tauntTicks > 0 ? 1.2 : 1);
-    damageUnit(target, ratio, 6);
-    damageUnit(me, ratio * 0.45, 3);
+    const ratio = (0.05 + me.officer.aptitudes.valor * 0.0007) * (me.unit.tauntTicks > 0 ? 1.2 : 1);
+    damageUnit(world, target, ratio, 6);
+    damageUnit(world, me, ratio * 0.45, 3);
     maybeRescue(target, battle.eventId);
     if (target.unit.troops <= 0 && !target.unit.gone) {
       fellUnit(target, me);
@@ -767,9 +802,9 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
 
   const trySkill = (me: UnitRef, target: UnitRef): boolean => {
     const d = chebyshev(me.unit, target.unit);
-    const used = (s: SkillId): boolean => me.unit.usedSkills.includes(s);
+    const used = (s: SkillId): boolean => (me.unit.skillCooldowns.get(s) ?? 0) > world.tick;
     const markUsed = (s: SkillId): void => {
-      me.unit.usedSkills.push(s);
+      me.unit.skillCooldowns.set(s, world.tick + (SKILL_COOLDOWN[s] ?? 4));
     };
     for (const skill of me.officer.skills) {
       if (used(skill)) {
@@ -846,7 +881,7 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
               mode: "storm",
             });
             for (const e of cluster) {
-              damageUnit(e, 0.12, 18);
+              damageUnit(world, e, 0.12, 18);
               // 散乱は縦横1マスのみ（斜め移動禁止）
               const [ddx, ddy] = rng.pick(SCATTER_DIRS);
               const nx = e.unit.x + ddx;
@@ -873,7 +908,7 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
             const rId = emitB("clash.rockfall", [me.officer.id, target.officer.id], { x: target.unit.x, y: target.unit.y }, {
               actor: me.officer.id,
             });
-            damageUnit(target, 0.25, 25);
+            damageUnit(world, target, 0.25, 25);
             // 世界の地形が変わる: 瓦礫が道を塞ぐ
             world.grid.scar(target.unit.x, target.unit.y + 1, "rubble", world.tick);
             emitB("clash.terrain", [], { x: target.unit.x, y: target.unit.y + 1 }, { what: "rubble" }, [rId]);
@@ -887,7 +922,6 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
             world.grid.at(me.unit.x, me.unit.y) === T.forest &&
             d > 2 &&
             !me.unit.hidden &&
-            me.unit.usedSkills.length === 0 &&
             rng.chance(0.5)
           ) {
             markUsed(skill);
@@ -914,7 +948,7 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
                 attacker: me.officer.id,
                 target: target.officer.id,
               });
-              damageUnit(target, 0.14 + me.officer.aptitudes.valor * 0.001, 16);
+              damageUnit(world, target, 0.14 + me.officer.aptitudes.valor * 0.001, 16);
               knockback(me, target, dx, dy, cId);
               maybeRescue(target, cId);
             }
@@ -992,7 +1026,7 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
           actor: me.officer.id,
           target: prey.officer.id,
         });
-        damageUnit(prey, 0.22, 28);
+        damageUnit(world, prey, 0.22, 28);
         maybeRescue(prey, aId);
       }
       continue;
@@ -1056,7 +1090,7 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
         const nearWall = walls.ring.some((wt) => chebyshev(me.unit, wt) <= 2) ||
           walls.gates.some((g) => chebyshev(me.unit, g) <= 2);
         if (nearWall) {
-          damageUnit(me, 0.02 + place.defense * 0.0003, 3);
+          damageUnit(world, me, 0.02 + place.defense * 0.0003, 3);
         }
       }
     }
@@ -1155,7 +1189,7 @@ function assaultCity(
   if (chebyshev(me.unit, center) <= 1 && place.garrison > 0) {
     const power = me.unit.troops * 0.06 + me.officer.aptitudes.valor;
     place.garrison = Math.max(0, place.garrison - power);
-    damageUnit(me, 0.015 + place.defense * 0.0002, 2);
+    damageUnit(world, me, 0.015 + place.defense * 0.0002, 2);
   }
   const attacker = world.factions.get(me.army.factionId);
   const owner = place.owner !== undefined ? world.factions.get(place.owner) : undefined;

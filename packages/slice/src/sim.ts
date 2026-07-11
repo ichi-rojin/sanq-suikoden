@@ -253,7 +253,9 @@ function monthlyRecovery(world: World): void {
   world.grid.healScars(world.tick);
 }
 
-// 日次tick: 火と矢 → 交戦 → 行軍 → 護送 → 旅人 →（月次）人生と世情 →（四半期）勢力戦略
+const STRATEGY_CYCLE_DAYS = 10; // MAS的な二層構造: 戦略は一旬(10日)単位、現場の判断は日次
+
+// 日次tick: 火と矢 → 交戦 → 行軍（現場は毎日 状況を見て判断） → 護送 → 旅人 →（月次）人生と世情 →（一旬）勢力戦略
 export function stepDay(world: World, names: NameRegistry): void {
   stepFires(world);
   stepVolleys(world);
@@ -272,7 +274,7 @@ export function stepDay(world: World, names: NameRegistry): void {
     stepSuccessions(world, names);
     monthlyRecovery(world);
   }
-  if (world.tick % (DAYS_PER_MONTH * 3) === 0) {
+  if (world.tick % STRATEGY_CYCLE_DAYS === 0) {
     runFactionStrategies(world, names);
   }
 

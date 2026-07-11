@@ -81,6 +81,22 @@ export function buildTerrainLayer(world: World): TerrainLayer {
         ctx.fill();
         break;
       }
+      case T.hill: {
+        // 丘陵: 山より低く丸い稜線。防御に拠れる緩やかな高まり
+        const cx = px + CELL / 2 + (r(1) - 0.5) * 3;
+        const cy = py + CELL / 2 + 1;
+        const s = 3 + r(2) * 2;
+        ctx.fillStyle = "rgba(70,80,50,0.55)";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, s, s * 0.55, 0, Math.PI, 0);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(140,150,100,0.3)";
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, s * 0.6, s * 0.32, 0, Math.PI, 0);
+        ctx.stroke();
+        break;
+      }
       case T.sea: {
         if (r(1) < 0.06) {
           ctx.strokeStyle = "rgba(150,190,220,0.25)";

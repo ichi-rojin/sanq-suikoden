@@ -56,6 +56,7 @@ export const TILE_COLORS: Record<number, string> = {
   [T.gate]: "#a88a5a",
   [T.burnt]: "#2b2320",
   [T.rubble]: "#55504a",
+  [T.hill]: "#5c6b40",
 };
 
 // 兵法発動ポップ（SAN9の「発動が癖になる」を移植）

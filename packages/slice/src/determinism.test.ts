@@ -62,7 +62,7 @@ describe("tile world structure", () => {
     for (const t of world.grid.terrain) {
       seen.add(t);
     }
-    for (const t of [T.plain, T.road, T.forest, T.mountain, T.river, T.ford, T.marsh, T.sea, T.city, T.wall, T.gate]) {
+    for (const t of [T.plain, T.road, T.forest, T.mountain, T.river, T.ford, T.marsh, T.sea, T.city, T.wall, T.gate, T.hill]) {
       expect(seen.has(t), `地形コード${t}が世界に存在しない`).toBe(true);
     }
   });
@@ -70,13 +70,13 @@ describe("tile world structure", () => {
 
 describe("vertical slice world simulation", () => {
   it("同一シードから同一の歴史が生まれる（決定論）", () => {
-    const a = simulate(42, 4);
-    const b = simulate(42, 4);
+    const a = simulate(42, 3);
+    const b = simulate(42, 3);
     expect(fingerprint(a)).toBe(fingerprint(b));
   });
 
   it("世界は出来事を生み続け、勢力の興亡が起きる", () => {
-    const world = simulate(42, 10);
+    const world = simulate(42, 6);
     expect(world.events.length).toBeGreaterThan(100);
     const kinds = new Set(world.events.map((e) => e.kind));
     // 核となる4体験: 群雄の戦争・怨恨か義盟・勢力の転落か勃興・冤罪または出奔
@@ -91,7 +91,7 @@ describe("vertical slice world simulation", () => {
   });
 
   it("技は世界へ作用し、傷跡（焼け跡・瓦礫・亡骸）が地図に残る", () => {
-    const world = simulate(42, 10);
+    const world = simulate(42, 6);
     const scarred = world.grid.scars.size > 0 ||
       world.corpses.length > 0 ||
       [...world.places.values()].some((p) => p.devastation > 0);

@@ -1,5 +1,7 @@
-// 責務: 武将47人の初期データ（素質・価値観・技・初期関係）。固有名詞はこのdata層のみに置く
+// 責務: 武将データ（素質・価値観・技・初期関係）。固有名詞はこのdata層のみに置く
+// 名のある英雄59名（水滸伝＋三姦臣等）に加え、人口密度のための無名の将士（populace）を決定論的に生成し合流させる
 import type { Aptitudes, BondKind, SkillId, Values } from "../src/model";
+import { PLACE_SEEDS } from "./world.data";
 
 export interface RelationSeed {
   target: string;
@@ -33,7 +35,7 @@ const V = (
   aggression: number, caution: number, face: number, attachment: number,
 ): Values => ({ altruism, loyalty, ambition, acquisition, aggression, caution, face, attachment });
 
-export const OFFICER_SEEDS: OfficerSeed[] = [
+const NAMED_OFFICER_SEEDS: OfficerSeed[] = [
   // ===== 官府（済州府・諸県） =====
   {
     id: "murong", family: "慕容", given: "彦達", age: 52,
@@ -388,3 +390,123 @@ export const OFFICER_SEEDS: OfficerSeed[] = [
     skills: ["charge"], startNode: "junzhou", faction: "wangqing", fameOfficial: 0, fameOutlaw: 30, relations: [],
   },
 ];
+
+// ---- populace: 人口密度のための無名の将士（決定論的生成。世界の賑わいを担う） ----
+// 名のある英雄59名は物語の主役、populaceは大軍・多正面戦争を成立させる頭数を担う（Producer指示R-19）
+function popHash(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  h ^= h >>> 13;
+  h = Math.imul(h, 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function popPick<T>(id: string, salt: number, items: readonly T[]): T {
+  const idx = Math.floor(popHash(`${id}:${salt}`) * items.length);
+  return items[Math.min(items.length - 1, idx)] as T;
+}
+
+function popRange(id: string, salt: number, min: number, max: number): number {
+  return Math.round(min + popHash(`${id}:${salt}`) * (max - min));
+}
+
+const POP_SURNAMES = [
+  "王", "李", "張", "劉", "陳", "楊", "黄", "趙", "呉", "周", "徐", "孫", "馬", "朱", "胡", "郭", "何", "高", "林", "羅",
+  "鄭", "梁", "謝", "宋", "唐", "許", "韓", "馮", "于", "董", "蕭", "程", "曹", "袁", "鄧", "傅", "沈", "曽", "彭", "呂",
+  "蘇", "盧", "蒋", "蔡", "賈", "丁", "魏", "薛", "閻", "段", "雷", "侯", "龍", "史", "陶", "任", "顧", "孟", "譚", "廖",
+];
+
+const POP_GIVEN = [
+  "猛", "威", "剛", "彪", "鋒", "雲", "飛", "震", "烈", "英", "傑", "武", "勲", "靖", "彬", "烽", "焱", "峰", "嵐", "岳",
+  "鵬", "翔", "羽", "鉉", "璋", "珪", "璟", "朔", "淵", "澄", "湛", "洛", "泓", "沖", "鎮", "堅", "鋭", "鉄", "戈", "戟",
+  "弩", "弓", "戦", "雷", "風", "電", "川", "岩", "崗", "嶽", "勝", "強", "豪", "雄", "傲", "鷹", "鵠", "鶚", "駿", "驍",
+];
+
+const ALL_SKILLS: SkillId[] = ["charge", "volley", "fire", "sorcery", "rockfall", "ambush", "taunt"];
+
+function cityPoolOf(ownerId: string): string[] {
+  return PLACE_SEEDS
+    .filter((p) => p.owner === ownerId && (p.kind === "capital" || p.kind === "county" || p.kind === "town" || p.kind === "manor"))
+    .map((p) => p.id);
+}
+
+const FREE_CITY_POOL = PLACE_SEEDS
+  .filter((p) => p.kind === "capital" || p.kind === "county" || p.kind === "town")
+  .map((p) => p.id);
+
+interface PopQuota {
+  faction?: string;
+  count: number;
+  cityPool: string[];
+}
+
+// 都市数に比例した頭数配分。官府が最大勢力ゆえ最も厚く、無所属は自由の民として各地に散らす
+const POP_QUOTAS: PopQuota[] = [
+  { faction: "court", count: 70, cityPool: cityPoolOf("court") },
+  { faction: "fangla", count: 12, cityPool: cityPoolOf("fangla") },
+  { faction: "tianhu", count: 11, cityPool: cityPoolOf("tianhu") },
+  { faction: "wangqing", count: 11, cityPool: cityPoolOf("wangqing") },
+  { faction: "zhu", count: 6, cityPool: cityPoolOf("zhu") },
+  { faction: "zeng", count: 6, cityPool: cityPoolOf("zeng") },
+  { faction: "liangshan-band", count: 8, cityPool: cityPoolOf("liangshan-band") },
+  { faction: "taohua-band", count: 6, cityPool: cityPoolOf("taohua-band") },
+  { count: 20, cityPool: FREE_CITY_POOL }, // 無所属の自由の民（各地を漂い、いずれかの旗に加わる）
+];
+
+function makePopulace(): OfficerSeed[] {
+  const seeds: OfficerSeed[] = [];
+  let idx = 0;
+  for (const quota of POP_QUOTAS) {
+    for (let i = 0; i < quota.count; i += 1) {
+      const id = `pop-${idx}`;
+      idx += 1;
+      const family = popPick(id, 1, POP_SURNAMES);
+      const given = popPick(id, 2, POP_GIVEN);
+      const skillRoll = popHash(`${id}:9`);
+      const skillCount = skillRoll < 0.12 ? 2 : skillRoll < 0.62 ? 1 : 0;
+      const skills: SkillId[] = [];
+      for (let s = 0; s < skillCount; s += 1) {
+        const sk = popPick(id, 30 + s, ALL_SKILLS);
+        if (!skills.includes(sk)) {
+          skills.push(sk);
+        }
+      }
+      const startNode = quota.cityPool.length > 0 ? popPick(id, 3, quota.cityPool) : "kaifeng";
+      seeds.push({
+        id,
+        family,
+        given,
+        age: popRange(id, 4, 20, 55),
+        apt: A(
+          popRange(id, 5, 25, 78),
+          popRange(id, 6, 22, 74),
+          popRange(id, 7, 24, 70),
+          popRange(id, 8, 20, 66),
+          popRange(id, 9, 18, 68),
+        ),
+        val: V(
+          popRange(id, 11, 15, 85),
+          popRange(id, 12, 25, 85),
+          popRange(id, 13, 15, 78),
+          popRange(id, 14, 15, 75),
+          popRange(id, 15, 20, 85),
+          popRange(id, 16, 15, 75),
+          popRange(id, 17, 30, 80),
+          popRange(id, 18, 20, 75),
+        ),
+        skills,
+        startNode,
+        ...(quota.faction !== undefined ? { faction: quota.faction } : {}),
+        fameOfficial: popRange(id, 19, 0, 15),
+        fameOutlaw: popRange(id, 20, 0, 15),
+        relations: [],
+      });
+    }
+  }
+  return seeds;
+}
+
+export const OFFICER_SEEDS: OfficerSeed[] = [...NAMED_OFFICER_SEEDS, ...makePopulace()];
