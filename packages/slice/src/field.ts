@@ -3,7 +3,7 @@
 import { emit } from "./events";
 import { disbandArmy, handleCaptive, killOfficer, resolveCityFall } from "./fate";
 import type { XY } from "./grid";
-import { T, burnRate, chebyshev, isFlammable, moveCostOf } from "./grid";
+import { T, burnRate, chebyshev, isFlammable, stepOneTile } from "./grid";
 import type {
   Army,
   ArmyUnit,
@@ -16,6 +16,7 @@ import type {
   World,
 } from "./model";
 import { armyTroops, nextId, placePos } from "./model";
+import type { Rng } from "./rng";
 
 const ENGAGE_RANGE = 6; // この距離まで近づいた敵対軍は交戦に入る
 const SIEGE_RANGE = 3; // 城への攻撃開始距離
@@ -25,6 +26,24 @@ interface UnitRef {
   army: Army;
   unit: ArmyUnit;
   officer: Officer;
+}
+
+// 斜め移動は禁止。縦横4方向のみの候補（距離の大きい軸を優先し、詰まれば別の軸へ）
+const SCATTER_DIRS: ReadonlyArray<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]];
+
+function axisCandidates(x: number, y: number, tx: number, ty: number, rng: Rng): XY[] {
+  const dxAbs = Math.abs(tx - x);
+  const dyAbs = Math.abs(ty - y);
+  const dxSign = Math.sign(tx - x);
+  const dySign = Math.sign(ty - y);
+  const primary: XY = dxAbs >= dyAbs ? { x: x + dxSign, y } : { x, y: y + dySign };
+  const secondary: XY = dxAbs >= dyAbs ? { x, y: y + dySign } : { x: x + dxSign, y };
+  return [
+    primary,
+    secondary,
+    { x: x + rng.pick([-1, 1]), y },
+    { x, y: y + rng.pick([-1, 1]) },
+  ];
 }
 
 function hostile(a: Army, b: Army): boolean {
@@ -532,13 +551,7 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
 
   const stepToward = (me: UnitRef, tx: number, ty: number): void => {
     const u = me.unit;
-    const candidates: XY[] = [
-      { x: u.x + Math.sign(tx - u.x), y: u.y + Math.sign(ty - u.y) },
-      { x: u.x + Math.sign(tx - u.x), y: u.y },
-      { x: u.x, y: u.y + Math.sign(ty - u.y) },
-      { x: u.x + rng.pick([-1, 1]), y: u.y },
-      { x: u.x, y: u.y + rng.pick([-1, 1]) },
-    ];
+    const candidates = axisCandidates(u.x, u.y, tx, ty, rng);
     for (const c of candidates) {
       if ((c.x === u.x && c.y === u.y) || !world.grid.inBounds(c.x, c.y)) {
         continue;
@@ -563,10 +576,13 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
   };
 
   const knockback = (attacker: UnitRef, target: UnitRef, dx: number, dy: number, causeId: EventId): void => {
+    // 押し出す向きは縦横いずれか一方（斜め移動禁止）。距離の大きい軸を選ぶ
+    const pushX = Math.abs(dx) >= Math.abs(dy) ? Math.sign(dx) : 0;
+    const pushY = pushX === 0 ? Math.sign(dy) : 0;
     let into = "ground";
     for (let s = 0; s < 2; s += 1) {
-      const nx = target.unit.x + Math.sign(dx);
-      const ny = target.unit.y + Math.sign(dy);
+      const nx = target.unit.x + pushX;
+      const ny = target.unit.y + pushY;
       if (!world.grid.inBounds(nx, ny)) {
         break;
       }
@@ -575,6 +591,23 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
         into = blocker.army.factionId === attacker.army.factionId ? "ally" : "unit";
         damageUnit(blocker, 0.06, 8);
         damageUnit(target, 0.06, 8);
+        // 将棋倒し: 突き当たった隊も、その先が空いていれば共に押し出される
+        const bx = blocker.unit.x + pushX;
+        const by = blocker.unit.y + pushY;
+        if (
+          world.grid.inBounds(bx, by) &&
+          world.grid.passable(bx, by) &&
+          unitAt(refs, bx, by) === undefined &&
+          !world.grid.fires.has(world.grid.idx(bx, by))
+        ) {
+          blocker.unit.x = bx;
+          blocker.unit.y = by;
+          emitB("clash.knockback", [attacker.officer.id, blocker.officer.id], { x: bx, y: by }, {
+            attacker: attacker.officer.id,
+            target: blocker.officer.id,
+            into: "domino",
+          }, [causeId]);
+        }
         break;
       }
       const t = world.grid.at(nx, ny);
@@ -607,7 +640,7 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
       damageUnit(target, 0.28, 30);
       emitB("clash.drown", [target.officer.id], { x: target.unit.x, y: target.unit.y }, { victim: target.officer.id }, [kbId]);
       // 岸へ這い上がる
-      const back = { x: target.unit.x - Math.sign(dx), y: target.unit.y - Math.sign(dy) };
+      const back = { x: target.unit.x - pushX, y: target.unit.y - pushY };
       if (world.grid.passable(back.x, back.y) && unitAt(refs, back.x, back.y) === undefined) {
         target.unit.x = back.x;
         target.unit.y = back.y;
@@ -814,8 +847,10 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
             });
             for (const e of cluster) {
               damageUnit(e, 0.12, 18);
-              const nx = e.unit.x + rng.pick([-1, 0, 1]);
-              const ny = e.unit.y + rng.pick([-1, 0, 1]);
+              // 散乱は縦横1マスのみ（斜め移動禁止）
+              const [ddx, ddy] = rng.pick(SCATTER_DIRS);
+              const nx = e.unit.x + ddx;
+              const ny = e.unit.y + ddy;
               if (world.grid.passable(nx, ny) && unitAt(refs, nx, ny) === undefined) {
                 e.unit.x = nx;
                 e.unit.y = ny;
@@ -974,6 +1009,25 @@ function stepBattle(world: World, battle: Battle, names: NameRegistry): void {
       // 攻城中の寄せ手は、道すがら門を叩く
       if (battle.siege && place !== undefined && me.army.target === place.id && !place.gateBroken) {
         ramGate(world, me, place, battle, emitB);
+      }
+    }
+  }
+
+  // ---- 猛火の傍らでは兵が浮足立つ（火中でなくとも、煙と熱に士気を削られる） ----
+  if (world.grid.fires.size > 0) {
+    for (const me of refs) {
+      if (me.unit.gone || me.unit.routed) {
+        continue;
+      }
+      const onFire = world.grid.fires.has(world.grid.idx(me.unit.x, me.unit.y));
+      if (onFire) {
+        continue; // 火中の被害は延焼処理（stepFires）が別途課す。ここは近接の煙のみ
+      }
+      const nearFire = [
+        [1, 0], [-1, 0], [0, 1], [0, -1],
+      ].some(([dx, dy]) => world.grid.fires.has(world.grid.idx(me.unit.x + (dx ?? 0), me.unit.y + (dy ?? 0))));
+      if (nearFire) {
+        me.unit.morale -= 3;
       }
     }
   }
@@ -1147,11 +1201,7 @@ function ramGate(
 
 function greedyStep(world: World, me: UnitRef, tx: number, ty: number): void {
   const u = me.unit;
-  const candidates: XY[] = [
-    { x: u.x + Math.sign(tx - u.x), y: u.y + Math.sign(ty - u.y) },
-    { x: u.x + Math.sign(tx - u.x), y: u.y },
-    { x: u.x, y: u.y + Math.sign(ty - u.y) },
-  ];
+  const candidates = axisCandidates(u.x, u.y, tx, ty, world.rng);
   for (const c of candidates) {
     if ((c.x === u.x && c.y === u.y) || !world.grid.inBounds(c.x, c.y)) {
       continue;
@@ -1214,38 +1264,28 @@ export function totalArmyTroops(world: World): number {
   return world.armies.reduce((sum, a) => sum + armyTroops(a), 0);
 }
 
+// 一日に縦横1マスだけ進む（斜め移動禁止・じっくり行軍）。地形が険しいほど1マスに数日を要する
 export function moveArmyAlongPath(world: World, army: Army, speed: number): void {
-  army.mp += speed;
-  while (army.path.length > 0) {
-    const next = army.path[0] as XY;
-    const diag = next.x !== army.x && next.y !== army.y ? 1.41 : 1;
-    const cost = moveCostOf(world.grid.at(next.x, next.y)) * diag;
-    if (!Number.isFinite(cost)) {
-      // 道が塞がれた（崖崩れ・破壊）。経路を引き直す
-      army.path = [];
-      break;
-    }
-    if (isSealedGate(world, next.x, next.y, army.factionId)) {
-      army.path = [];
-      break;
-    }
-    if (army.mp < cost) {
-      break;
-    }
-    army.mp -= cost;
-    army.path.shift();
-    army.trail.push({ x: army.x, y: army.y });
-    if (army.trail.length > 7) {
-      army.trail.shift();
-    }
-    army.x = next.x;
-    army.y = next.y;
-    // 行軍中は各隊も隊列に従う
-    for (const unit of army.units) {
-      if (!unit.gone) {
-        unit.x = army.x;
-        unit.y = army.y;
-      }
+  const prevX = army.x;
+  const prevY = army.y;
+  const result = stepOneTile(world.grid, army.x, army.y, army.mp, army.path, speed, (t, x, y) =>
+    isSealedGate(world, x, y, army.factionId),
+  );
+  army.x = result.x;
+  army.y = result.y;
+  army.mp = result.mp;
+  if (!result.moved) {
+    return;
+  }
+  army.trail.push({ x: prevX, y: prevY });
+  if (army.trail.length > 7) {
+    army.trail.shift();
+  }
+  // 行軍中は各隊も隊列に従う
+  for (const unit of army.units) {
+    if (!unit.gone) {
+      unit.x = army.x;
+      unit.y = army.y;
     }
   }
 }

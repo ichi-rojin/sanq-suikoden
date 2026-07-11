@@ -34,7 +34,22 @@
       border-left: 3px solid #666; }
     .wrow.fighting { color: #ff9a7a; border-left-color: #c0392b; }
     #stories { padding: 6px 10px; }
-    .srow { font-size: 11.5px; color: #e0cf9f; margin-bottom: 4px; }
+    .srow { font-size: 11.5px; color: #e0cf9f; margin-bottom: 4px; cursor: pointer; padding: 2px 4px;
+      border-radius: 3px; }
+    .srow:hover { background: #241d12; color: #ffe9b0; }
+
+    /* 物語リーダー: 物語書架をクリックすると開く。世界は止めない */
+    #story-modal { position: absolute; inset: 0; z-index: 20; background: rgba(8,6,4,0.66);
+      display: flex; align-items: center; justify-content: center; }
+    #story-modal.hidden { display: none; }
+    .story-box { width: 540px; max-height: 80%; background: #14110c; border: 2px solid #8a744e;
+      border-radius: 6px; box-shadow: 0 8px 32px rgba(0,0,0,0.7); display: flex; flex-direction: column; }
+    .story-head { display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 16px; border-bottom: 1px solid #4a3d28; }
+    .story-title { font-size: 16px; font-weight: 700; color: #ffd76a; }
+    .story-body { padding: 10px 16px; overflow-y: auto; font-size: 13px; line-height: 1.75; color: #e8dcc0; }
+    .story-line { margin-bottom: 6px; }
+    .story-line .when { color: #8a7c60; font-size: 11px; margin-right: 5px; }
 
     #stage { flex: 1; min-width: 0; position: relative; }
     #stage canvas { display: block; }
@@ -124,6 +139,15 @@
         </div>
         <div class="drama-cast"></div>
         <div class="drama-lines"></div>
+      </div>
+      <div id="story-modal" class="hidden">
+        <div class="story-box">
+          <div class="story-head">
+            <span class="story-title">──</span>
+            <button class="story-close">×</button>
+          </div>
+          <div class="story-body"></div>
+        </div>
       </div>
     </div>
     <aside id="side">

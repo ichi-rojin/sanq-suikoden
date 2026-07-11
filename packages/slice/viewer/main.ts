@@ -91,8 +91,8 @@ async function boot(): Promise<void> {
   // ---- カメラ（自由スクロール・ズーム・追跡） ----
   const kaifengSeed = PLACE_SEEDS.find((p) => p.id === "kaifeng");
   const camera = {
-    x: (kaifengSeed?.gridX ?? GRID_W / 2) * CELL,
-    y: (kaifengSeed?.gridY ?? GRID_H / 2) * CELL,
+    x: (kaifengSeed?.gridX ?? GRID_W / 2) * CELL + CELL / 2,
+    y: (kaifengSeed?.gridY ?? GRID_H / 2) * CELL + CELL / 2,
     zoom: initialZoom,
     targetZoom: initialZoom,
   };
@@ -101,8 +101,8 @@ async function boot(): Promise<void> {
 
   dramaView.onFocus = (x, y) => {
     follow = undefined;
-    camera.x = x * CELL;
-    camera.y = y * CELL;
+    camera.x = x * CELL + CELL / 2;
+    camera.y = y * CELL + CELL / 2;
     camera.targetZoom = Math.max(camera.targetZoom, 1.8);
   };
 
@@ -178,15 +178,15 @@ async function boot(): Promise<void> {
       }
       mmCtx.fillStyle = colorHex(factionColor(place.owner));
       const size = place.kind === "capital" ? 4 : 3;
-      mmCtx.fillRect(place.gridX * CELL * mmScale - size / 2, place.gridY * CELL * mmScale - size / 2, size, size);
+      mmCtx.fillRect((place.gridX + 0.5) * CELL * mmScale - size / 2, (place.gridY + 0.5) * CELL * mmScale - size / 2, size, size);
     }
     mmCtx.fillStyle = "#ffffff";
     for (const army of world.armies) {
-      mmCtx.fillRect(army.x * CELL * mmScale - 1, army.y * CELL * mmScale - 1, 2, 2);
+      mmCtx.fillRect((army.x + 0.5) * CELL * mmScale - 1, (army.y + 0.5) * CELL * mmScale - 1, 2, 2);
     }
     mmCtx.fillStyle = "#ff5544";
     for (const battle of world.battles) {
-      mmCtx.fillRect(battle.x * CELL * mmScale - 1.5, battle.y * CELL * mmScale - 1.5, 3, 3);
+      mmCtx.fillRect((battle.x + 0.5) * CELL * mmScale - 1.5, (battle.y + 0.5) * CELL * mmScale - 1.5, 3, 3);
     }
     // 現在のカメラ視界
     const vw = (app.screen.width / camera.zoom) * mmScale;
@@ -284,6 +284,33 @@ async function boot(): Promise<void> {
       warsBox.appendChild(row);
     }
   };
+  // ---- 物語リーダー（物語書架をクリックすると開く。世界は止めない） ----
+  const storyModal = el<HTMLDivElement>("story-modal");
+  const storyTitleEl = storyModal.querySelector(".story-title") as HTMLElement;
+  const storyBodyEl = storyModal.querySelector(".story-body") as HTMLElement;
+  const closeStory = (): void => storyModal.classList.add("hidden");
+  storyModal.querySelector(".story-close")?.addEventListener("click", closeStory);
+  storyModal.addEventListener("pointerdown", (ev) => {
+    if (ev.target === storyModal) {
+      closeStory();
+    }
+  });
+  const openStory = (story: Story): void => {
+    storyTitleEl.textContent = `『${titleOf(story)}』`;
+    storyBodyEl.replaceChildren();
+    for (const event of story.events) {
+      const row = document.createElement("div");
+      row.className = "story-line";
+      const when = document.createElement("span");
+      when.className = "when";
+      when.textContent = `${names.yearLabel(yearOf(event.tick))}${names.monthLabel(monthOf(event.tick))}`;
+      row.appendChild(when);
+      row.appendChild(document.createTextNode(narrateEvent(event, names)));
+      storyBodyEl.appendChild(row);
+    }
+    storyModal.classList.remove("hidden");
+  };
+
   const knownStories = new Set<string>();
   let storyBooted = false;
   const refreshStories = (): void => {
@@ -307,6 +334,7 @@ async function boot(): Promise<void> {
       const row = document.createElement("div");
       row.className = "srow";
       row.textContent = `『${titleOf(story)}』`;
+      row.addEventListener("click", () => openStory(story));
       storiesBox.appendChild(row);
     }
   };
@@ -441,11 +469,11 @@ async function boot(): Promise<void> {
 
   const eventAtPx = (event: WorldEvent): { x: number; y: number } | undefined => {
     if (event.at !== undefined) {
-      return { x: event.at.x * CELL, y: event.at.y * CELL };
+      return { x: event.at.x * CELL + CELL / 2, y: event.at.y * CELL + CELL / 2 };
     }
     if (event.loc !== undefined) {
       const p = placePos(world, event.loc);
-      return { x: p.x * CELL, y: p.y * CELL };
+      return { x: p.x * CELL + CELL / 2, y: p.y * CELL + CELL / 2 };
     }
     return undefined;
   };
@@ -548,7 +576,7 @@ async function boot(): Promise<void> {
       world.grid.dirty.length = 0;
       terrainTexture.source.update();
     }
-    worldView.applyTick();
+    worldView.applyTick(dayMs());
     refreshHeader();
     if (world.tick % 5 === 0) {
       refreshFactions();
@@ -587,8 +615,8 @@ async function boot(): Promise<void> {
   });
   el<HTMLButtonElement>("btn-home").addEventListener("click", () => {
     follow = undefined;
-    camera.x = (kaifengSeed?.gridX ?? 0) * CELL;
-    camera.y = (kaifengSeed?.gridY ?? 0) * CELL;
+    camera.x = (kaifengSeed?.gridX ?? 0) * CELL + CELL / 2;
+    camera.y = (kaifengSeed?.gridY ?? 0) * CELL + CELL / 2;
     camera.targetZoom = 1.0;
   });
   renderSpeed();

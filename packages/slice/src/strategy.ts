@@ -4,7 +4,7 @@ import { emit } from "./events";
 import { disbandArmy, killOfficer, occupyPlace } from "./fate";
 import { isSealedGate, makeUnits, moveArmyAlongPath } from "./field";
 import type { TileCostFn, XY } from "./grid";
-import { T, chebyshev, findTilePath, moveCostOf } from "./grid";
+import { T, chebyshev, findTilePath, moveCostOf, stepOneTile } from "./grid";
 import type {
   Army,
   EventId,
@@ -600,20 +600,13 @@ export function stepConvoys(world: World, names: NameRegistry): void {
       world.convoys = world.convoys.filter((c) => c !== convoy);
       continue;
     }
-    // 枷をはめられた足取りは重い
-    convoy.mp += CONVOY_SPEED;
-    while (convoy.path.length > 0) {
-      const next = convoy.path[0] as XY;
-      const diag = next.x !== convoy.x && next.y !== convoy.y ? 1.41 : 1;
-      const cost = moveCostOf(world.grid.at(next.x, next.y)) * diag;
-      if (!Number.isFinite(cost) || convoy.mp < cost) {
-        break;
-      }
-      convoy.mp -= cost;
-      convoy.path.shift();
-      convoy.x = next.x;
-      convoy.y = next.y;
-      prisoner.pos = { x: next.x, y: next.y };
+    // 枷をはめられた足取りは重い。縦横1マスのみ、じっくりと進む
+    const step = stepOneTile(world.grid, convoy.x, convoy.y, convoy.mp, convoy.path, CONVOY_SPEED);
+    convoy.x = step.x;
+    convoy.y = step.y;
+    convoy.mp = step.mp;
+    if (step.moved) {
+      prisoner.pos = { x: convoy.x, y: convoy.y };
     }
 
     // 報せを聞いた友は護送路の先へ急ぐ

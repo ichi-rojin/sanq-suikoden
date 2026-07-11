@@ -2,8 +2,7 @@
 // 裁定R-17: 武将は拠点間を瞬間移動しない。世界タイルを一歩ずつ歩き、道中で出会い、襲われ、擦れ違う
 import { emit } from "./events";
 import { killOfficer } from "./fate";
-import type { XY } from "./grid";
-import { chebyshev, findTilePath, moveCostOf } from "./grid";
+import { chebyshev, findTilePath, stepOneTile } from "./grid";
 import type { NameRegistry, Officer, World } from "./model";
 import {
   armyOfficerIds,
@@ -50,21 +49,11 @@ export function stepJourneys(world: World): void {
       continue;
     }
     const journey = officer.journey;
-    journey.mp += journey.speed;
-    while (journey.path.length > 0) {
-      const next = journey.path[0] as XY;
-      const diag = next.x !== officer.pos.x && next.y !== officer.pos.y ? 1.41 : 1;
-      const cost = moveCostOf(world.grid.at(next.x, next.y)) * diag;
-      if (!Number.isFinite(cost)) {
-        delete officer.journey; // 道が塞がれた（崖崩れ・延焼）。旅を諦める
-        break;
-      }
-      if (journey.mp < cost) {
-        break;
-      }
-      journey.mp -= cost;
-      journey.path.shift();
-      officer.pos = { x: next.x, y: next.y };
+    const result = stepOneTile(world.grid, officer.pos.x, officer.pos.y, journey.mp, journey.path, journey.speed);
+    officer.pos = { x: result.x, y: result.y };
+    journey.mp = result.mp;
+    if (result.blocked) {
+      delete officer.journey; // 道が塞がれた（崖崩れ・延焼）。旅を諦める
     }
     if (officer.journey !== undefined && officer.journey.path.length === 0) {
       officer.loc = officer.journey.dest;

@@ -1,5 +1,6 @@
 // 責務: 世界俯瞰の実体描画。拠点・武将・軍勢・護送・交戦・火災・矢・亡骸を実シミュレーション状態から毎日更新する
-// 軍勢はタイルを一歩ずつ進み、交戦中は各隊が世界地図の上に散開する——戦争画面は無い、世界そのものが戦場である
+// 軍勢はタイルを一歩ずつ、等速かつイージング無しでじっくりと進み、交戦中は各隊が世界地図の上に散開する
+// 戦争画面は無い——世界そのものが戦場である。アイコンは常にタイルの中心に置く
 import { Container, Graphics, Text } from "pixi.js";
 import type { NameRegistry, World } from "../src/model";
 import { armyTroops, placePos } from "../src/model";
@@ -29,19 +30,52 @@ interface FloatText {
   dur: number;
 }
 
-interface MovingSprite {
+// 等速・イージング無しの直線移動: fromから始まりdur[ms]かけてtoへ着く。斜めに見えても実体は縦横1マスずつ歩む
+interface MoveState {
   root: Container;
-  tx: number;
-  ty: number;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  t: number;
+  dur: number;
   fading?: boolean;
 }
 
-interface OfficerSprite extends MovingSprite {
+interface OfficerSprite extends MoveState {
   dot: Graphics;
   label: Text;
 }
 
 export type SelectHandler = (kind: "officer" | "place" | "army", id: string) => void;
+
+// タイル座標(x,y)の中心を画面ピクセルへ
+function tileCenter(x: number, y: number): { x: number; y: number } {
+  return { x: x * CELL + CELL / 2, y: y * CELL + CELL / 2 };
+}
+
+function retarget(s: MoveState, nx: number, ny: number, dur: number): void {
+  if (s.toX === nx && s.toY === ny) {
+    return; // 目的地が変わらないなら動かさない（足踏み中）
+  }
+  s.fromX = s.root.x;
+  s.fromY = s.root.y;
+  s.toX = nx;
+  s.toY = ny;
+  s.t = 0;
+  s.dur = Math.max(1, dur);
+}
+
+function snapTo(s: MoveState, x: number, y: number): void {
+  s.root.x = x;
+  s.root.y = y;
+  s.fromX = x;
+  s.fromY = y;
+  s.toX = x;
+  s.toY = y;
+  s.t = 1;
+  s.dur = 1;
+}
 
 export class WorldView {
   readonly root = new Container();
@@ -59,9 +93,9 @@ export class WorldView {
   private readonly placeInfos = new Map<string, Text>();
   private readonly placeLabels = new Map<string, Text>();
   private readonly officerSprites = new Map<string, OfficerSprite>();
-  private readonly armySprites = new Map<string, MovingSprite & { label: Text; flag: Graphics }>();
+  private readonly armySprites = new Map<string, MoveState & { label: Text; flag: Graphics }>();
   private readonly unitSprites = new Map<string, OfficerSprite>();
-  private readonly convoySprites = new Map<string, MovingSprite>();
+  private readonly convoySprites = new Map<string, MoveState>();
   private readonly battleMarks = new Map<string, Container>();
 
   private pulses: Pulse[] = [];
@@ -86,12 +120,12 @@ export class WorldView {
     this.root.addChild(this.liveFx);
     this.root.addChild(this.fxLayer);
     this.buildPlaces();
-    this.applyTick();
+    this.applyTick(0);
   }
 
   pos(placeId: string): { x: number; y: number } {
     const p = placePos(this.world, placeId);
-    return { x: p.x * CELL, y: p.y * CELL };
+    return tileCenter(p.x, p.y);
   }
 
   // 武将ごとに拠点内の定位置（決定論的な散らし）を持つ
@@ -104,8 +138,9 @@ export class WorldView {
   private buildPlaces(): void {
     for (const place of this.world.places.values()) {
       const c = new Container();
-      c.x = place.gridX * CELL;
-      c.y = place.gridY * CELL;
+      const center = tileCenter(place.gridX, place.gridY);
+      c.x = center.x;
+      c.y = center.y;
       const body = new Graphics();
       c.addChild(body);
       const isMinor = place.kind === "pass" || place.kind === "port" || place.kind === "town";
@@ -202,14 +237,14 @@ export class WorldView {
     info.text = bits.join(" ");
   }
 
-  // ---- 日次更新: 実体の目標位置を差し替える（滑らかな移動はupdateが担う） ----
-  applyTick(): void {
+  // ---- 日次更新: 実体の目標位置を差し替える。dayMsは今の1日の実時間の長さ（等速アニメの基準） ----
+  applyTick(dayMs: number): void {
     for (const placeId of this.world.places.keys()) {
       this.redrawPlace(placeId);
     }
-    this.updateOfficers();
-    this.updateArmies();
-    this.updateConvoys();
+    this.updateOfficers(dayMs);
+    this.updateArmies(dayMs);
+    this.updateConvoys(dayMs);
     this.updateBattles();
     this.redrawCorpses();
   }
@@ -224,13 +259,13 @@ export class WorldView {
     }
     if (kind === "battle") {
       const battle = this.world.battles.find((b) => b.id === id);
-      return battle !== undefined ? { x: battle.x * CELL, y: battle.y * CELL } : undefined;
+      return battle !== undefined ? tileCenter(battle.x, battle.y) : undefined;
     }
     const s = this.armySprites.get(id);
     return s !== undefined ? { x: s.root.x, y: s.root.y } : undefined;
   }
 
-  private updateOfficers(): void {
+  private updateOfficers(dayMs: number): void {
     const inArmies = new Set(this.world.armies.flatMap((a) => a.units.map((u) => u.officerId)));
     for (const officer of this.world.officers.values()) {
       let sprite = this.officerSprites.get(officer.id);
@@ -242,8 +277,9 @@ export class WorldView {
       }
       const traveling = officer.journey !== undefined;
       const off = traveling ? { x: 0, y: 0 } : this.officerOffset(officer.id);
-      const tx = officer.pos.x * CELL + off.x;
-      const ty = officer.pos.y * CELL + off.y;
+      const center = tileCenter(officer.pos.x, officer.pos.y);
+      const tx = center.x + off.x;
+      const ty = center.y + off.y;
       if (sprite === undefined) {
         const root = new Container();
         const dot = new Graphics();
@@ -256,17 +292,16 @@ export class WorldView {
         label.y = 3.5;
         label.alpha = 0.92;
         root.addChild(label);
-        root.x = tx;
-        root.y = ty;
         root.eventMode = "static";
         root.cursor = "pointer";
         root.on("pointertap", () => this.onSelect("officer", officer.id));
         this.officerLayer.addChild(root);
-        sprite = { root, dot, label, tx, ty };
+        sprite = { root, dot, label, fromX: tx, fromY: ty, toX: tx, toY: ty, t: 1, dur: 1 };
+        snapTo(sprite, tx, ty);
         this.officerSprites.set(officer.id, sprite);
+      } else {
+        retarget(sprite, tx, ty, dayMs);
       }
-      sprite.tx = tx;
-      sprite.ty = ty;
       // 軍に編入中は隊で表現するため個人の点は消す
       sprite.root.visible = !inArmies.has(officer.id);
       sprite.dot.clear();
@@ -282,7 +317,7 @@ export class WorldView {
     }
   }
 
-  private updateArmies(): void {
+  private updateArmies(dayMs: number): void {
     const seenArmies = new Set<string>();
     const seenUnits = new Set<string>();
     this.trailG.clear();
@@ -291,6 +326,7 @@ export class WorldView {
       seenArmies.add(army.id);
       const color = factionColor(army.factionId);
       const fighting = army.battleId !== undefined || army.state === "fight";
+      const armyCenter = tileCenter(army.x, army.y);
 
       // 行軍の足跡（兵列）と進軍先の矢線
       if (!fighting) {
@@ -299,13 +335,14 @@ export class WorldView {
           if (step === undefined) {
             continue;
           }
+          const sc = tileCenter(step.x, step.y);
           this.trailG
-            .circle(step.x * CELL + (i % 2) * 2 - 1, step.y * CELL + ((i + 1) % 2) * 2 - 1, 1.5)
+            .circle(sc.x + (i % 2) * 2 - 1, sc.y + ((i + 1) % 2) * 2 - 1, 1.5)
             .fill({ color: 0xd8d2c0, alpha: 0.25 + (i / army.trail.length) * 0.55 });
         }
         const to = this.pos(army.target);
         this.trailG
-          .moveTo(army.x * CELL, army.y * CELL)
+          .moveTo(armyCenter.x, armyCenter.y)
           .lineTo(to.x, to.y)
           .stroke({ width: 1.4, color, alpha: 0.3 });
         this.trailG.circle(to.x, to.y, 6).stroke({ width: 1.6, color, alpha: 0.5 });
@@ -313,6 +350,8 @@ export class WorldView {
 
       // 軍旗（行軍時のみ。交戦時は各隊が主役）
       let sprite = this.armySprites.get(army.id);
+      const flagTx = armyCenter.x;
+      const flagTy = armyCenter.y - 8;
       if (sprite === undefined) {
         const root = new Container();
         const flag = new Graphics();
@@ -324,14 +363,13 @@ export class WorldView {
         label.anchor.set(0.5, 0);
         label.y = 8;
         root.addChild(label);
-        root.x = army.x * CELL;
-        root.y = army.y * CELL - 8;
         root.eventMode = "static";
         root.cursor = "pointer";
         const armyId = army.id;
         root.on("pointertap", () => this.onSelect("army", armyId));
         this.armyLayer.addChild(root);
-        sprite = { root, tx: root.x, ty: root.y, label, flag };
+        sprite = { root, label, flag, fromX: flagTx, fromY: flagTy, toX: flagTx, toY: flagTy, t: 1, dur: 1 };
+        snapTo(sprite, flagTx, flagTy);
         this.armySprites.set(army.id, sprite);
         flag.clear();
         for (let i = 0; i < 4; i += 1) {
@@ -339,9 +377,9 @@ export class WorldView {
         }
         flag.moveTo(0, 4).lineTo(0, -14).stroke({ width: 2, color: 0x999999 });
         flag.poly([0, -14, 13, -11, 0, -7]).fill(color).stroke({ width: 1, color: 0x000000 });
+      } else {
+        retarget(sprite, flagTx, flagTy, dayMs);
       }
-      sprite.tx = army.x * CELL;
-      sprite.ty = army.y * CELL - 8;
       sprite.root.visible = !fighting;
       sprite.label.text = `${this.names.faction(army.factionId)}軍 ${armyTroops(army)}`;
 
@@ -353,6 +391,7 @@ export class WorldView {
           }
           const key = `${army.id}:${unit.officerId}`;
           seenUnits.add(key);
+          const uc = tileCenter(unit.x, unit.y);
           let us = this.unitSprites.get(key);
           if (us === undefined) {
             const root = new Container();
@@ -365,18 +404,18 @@ export class WorldView {
             label.anchor.set(0.5, 0);
             label.y = 4.5;
             root.addChild(label);
-            root.x = unit.x * CELL;
-            root.y = unit.y * CELL;
             root.eventMode = "static";
             root.cursor = "pointer";
             const oid = unit.officerId;
             root.on("pointertap", () => this.onSelect("officer", oid));
             this.armyLayer.addChild(root);
-            us = { root, dot, label, tx: root.x, ty: root.y };
+            us = { root, dot, label, fromX: uc.x, fromY: uc.y, toX: uc.x, toY: uc.y, t: 1, dur: 1 };
+            snapTo(us, uc.x, uc.y);
             this.unitSprites.set(key, us);
+          } else {
+            // 戦闘中の動きは一日の中の複数所作の結果なので、日の長さぶんで滑らかに追いつく
+            retarget(us, uc.x, uc.y, dayMs);
           }
-          us.tx = unit.x * CELL;
-          us.ty = unit.y * CELL;
           us.dot.clear();
           if (unit.hidden) {
             us.dot.circle(0, 0, 3.6).stroke({ width: 1, color, alpha: 0.35 });
@@ -407,10 +446,11 @@ export class WorldView {
     }
   }
 
-  private updateConvoys(): void {
+  private updateConvoys(dayMs: number): void {
     const seen = new Set<string>();
     for (const convoy of this.world.convoys) {
       seen.add(convoy.prisoner);
+      const center = tileCenter(convoy.x, convoy.y);
       let sprite = this.convoySprites.get(convoy.prisoner);
       if (sprite === undefined) {
         const root = new Container();
@@ -426,14 +466,13 @@ export class WorldView {
         label.anchor.set(0.5, 0);
         label.y = 5;
         root.addChild(label);
-        root.x = convoy.x * CELL;
-        root.y = convoy.y * CELL;
         this.armyLayer.addChild(root);
-        sprite = { root, tx: root.x, ty: root.y };
+        sprite = { root, fromX: center.x, fromY: center.y, toX: center.x, toY: center.y, t: 1, dur: 1 };
+        snapTo(sprite, center.x, center.y);
         this.convoySprites.set(convoy.prisoner, sprite);
+      } else {
+        retarget(sprite, center.x, center.y, dayMs);
       }
-      sprite.tx = convoy.x * CELL;
-      sprite.ty = convoy.y * CELL;
     }
     for (const [id, sprite] of this.convoySprites) {
       if (!seen.has(id)) {
@@ -465,8 +504,9 @@ export class WorldView {
         this.battleLayer.addChild(mark);
         this.battleMarks.set(battle.id, mark);
       }
-      mark.x = battle.x * CELL;
-      mark.y = battle.y * CELL;
+      const center = tileCenter(battle.x, battle.y);
+      mark.x = center.x;
+      mark.y = center.y;
       mark.visible = this.zoomNow < 0.9;
     }
     for (const [id, mark] of this.battleMarks) {
@@ -485,8 +525,9 @@ export class WorldView {
         continue; // 一年経てば骨も土に還る
       }
       const alpha = Math.max(0.08, 0.55 - age / 720);
-      const x = corpse.x * CELL + (decoRand(`c${corpse.tick}`, 1) - 0.5) * 5;
-      const y = corpse.y * CELL + (decoRand(`c${corpse.tick}`, 2) - 0.5) * 5;
+      const c = tileCenter(corpse.x, corpse.y);
+      const x = c.x + (decoRand(`c${corpse.tick}`, 1) - 0.5) * 5;
+      const y = c.y + (decoRand(`c${corpse.tick}`, 2) - 0.5) * 5;
       this.corpseG.moveTo(x - 2, y).lineTo(x + 2, y).stroke({ width: 1.2, color: 0x968a76, alpha });
       this.corpseG.moveTo(x, y - 2).lineTo(x, y + 1.6).stroke({ width: 1.2, color: 0x968a76, alpha });
     }
@@ -526,35 +567,36 @@ export class WorldView {
     }
   }
 
-  // ---- 演出 ----
+  // ---- 演出（呼び出し側はタイル座標で渡す） ----
   pulseAt(x: number, y: number, color: number): void {
+    const c = tileCenter(x, y);
     const g = new Graphics();
     this.fxLayer.addChild(g);
-    this.pulses.push({ g, x: x * CELL, y: y * CELL, color, t: 0, dur: 1100 });
+    this.pulses.push({ g, x: c.x, y: c.y, color, t: 0, dur: 1100 });
   }
 
   fireBurstAt(x: number, y: number): void {
-    const px = x * CELL;
-    const py = y * CELL;
+    const c = tileCenter(x, y);
     for (let i = 0; i < 10; i += 1) {
       const g = new Graphics();
-      g.circle(0, 0, 1.4 + decoRand(`${px}`, i) * 2.2).fill({
+      g.circle(0, 0, 1.4 + decoRand(`${c.x}`, i) * 2.2).fill({
         color: i % 3 === 0 ? 0xffc46a : 0xe25822,
         alpha: 0.9,
       });
-      g.x = px + (decoRand(`${px}`, i * 7) - 0.5) * 14;
-      g.y = py + (decoRand(`${py}`, i * 11) - 0.5) * 8;
+      g.x = c.x + (decoRand(`${c.x}`, i * 7) - 0.5) * 14;
+      g.y = c.y + (decoRand(`${c.y}`, i * 11) - 0.5) * 8;
       this.fxLayer.addChild(g);
       this.particles.push({
         g,
-        vx: (decoRand(`${px}`, i * 13) - 0.5) * 8,
-        vy: -14 - decoRand(`${py}`, i * 17) * 18,
+        vx: (decoRand(`${c.x}`, i * 13) - 0.5) * 8,
+        vy: -14 - decoRand(`${c.y}`, i * 17) * 18,
         t: 0,
-        dur: 900 + decoRand(`${px}${py}`, i * 19) * 700,
+        dur: 900 + decoRand(`${c.x}${c.y}`, i * 19) * 700,
       });
     }
   }
 
+  // 既にピクセル座標（中心済み）を渡す想定
   floatText(x: number, y: number, message: string, color: number): void {
     const t = new Text({
       text: message,
@@ -568,46 +610,52 @@ export class WorldView {
     this.floats.push({ t, vy: -14, age: 0, dur: 1700 });
   }
 
-  // ---- 毎フレーム: 補間移動と持続現象（炎・煙・矢の雨） ----
+  // ---- 毎フレーム: 等速直線移動の補間と持続現象（炎・煙・矢の雨） ----
   update(deltaMS: number): void {
     this.flicker += deltaMS;
-    const k = Math.min(1, deltaMS / 150);
-    const move = (s: MovingSprite): void => {
-      s.root.x += (s.tx - s.root.x) * k;
-      s.root.y += (s.ty - s.root.y) * k;
+    const advance = (s: MoveState): void => {
+      if (s.t >= s.dur) {
+        return;
+      }
+      s.t = Math.min(s.dur, s.t + deltaMS);
+      const k = s.t / s.dur; // 線形補間（イージング無し・等速）
+      s.root.x = s.fromX + (s.toX - s.fromX) * k;
+      s.root.y = s.fromY + (s.toY - s.fromY) * k;
     };
     for (const [, s] of this.officerSprites) {
-      move(s);
+      advance(s);
     }
     for (const [, s] of this.armySprites) {
-      move(s);
+      advance(s);
     }
     for (const [, s] of this.unitSprites) {
-      move(s);
+      advance(s);
     }
     for (const [, s] of this.convoySprites) {
-      move(s);
+      advance(s);
     }
 
     // 炎と矢の雨（世界の持続現象を毎フレーム描き直す）
     this.liveFx.clear();
     const phase = Math.floor(this.flicker / 130);
     for (const [idx] of this.world.grid.fires) {
-      const x = (idx % this.world.grid.w) * CELL;
-      const y = Math.floor(idx / this.world.grid.w) * CELL;
+      const fx = idx % this.world.grid.w;
+      const fy = Math.floor(idx / this.world.grid.w);
+      const { x, y } = tileCenter(fx, fy);
+      const left = x - CELL / 2;
+      const top = y - CELL / 2;
       const hot = (phase + idx) % 2 === 0;
-      this.liveFx.rect(x, y, CELL, CELL).fill({ color: hot ? 0xe25822 : 0xff9a3d, alpha: 0.85 });
+      this.liveFx.rect(left, top, CELL, CELL).fill({ color: hot ? 0xe25822 : 0xff9a3d, alpha: 0.85 });
       this.liveFx
-        .poly([x + 1, y + CELL, x + CELL / 2, y - 2 - (hot ? 2 : 0), x + CELL - 1, y + CELL])
+        .poly([left + 1, top + CELL, x, top - 2 - (hot ? 2 : 0), left + CELL - 1, top + CELL])
         .fill({ color: 0xffc46a, alpha: 0.55 });
     }
     for (const volley of this.world.volleys) {
       for (const c of volley.cells) {
-        const bx = c.x * CELL;
-        const by = c.y * CELL;
+        const { x: bx, y: by } = tileCenter(c.x, c.y);
         for (let i = 0; i < 3; i += 1) {
-          const sx = bx + ((phase * 3 + i * 5 + c.x) % CELL);
-          const sy = by + ((phase * 5 + i * 3 + c.y) % CELL);
+          const sx = bx - CELL / 2 + ((phase * 3 + i * 5 + c.x) % CELL);
+          const sy = by - CELL / 2 + ((phase * 5 + i * 3 + c.y) % CELL);
           this.liveFx.moveTo(sx, sy - 5).lineTo(sx + 2, sy).stroke({ width: 1, color: 0xe8dcc0, alpha: 0.85 });
         }
       }
@@ -620,12 +668,13 @@ export class WorldView {
       const fireIdxs = [...this.world.grid.fires.keys()];
       const pickIdx = fireIdxs[phase % fireIdxs.length];
       if (pickIdx !== undefined) {
-        const x = (pickIdx % this.world.grid.w) * CELL + CELL / 2;
-        const y = Math.floor(pickIdx / this.world.grid.w) * CELL;
+        const fx = pickIdx % this.world.grid.w;
+        const fy = Math.floor(pickIdx / this.world.grid.w);
+        const { x, y } = tileCenter(fx, fy);
         const g = new Graphics();
         g.circle(0, 0, 2.4 + decoRand(`s${pickIdx}`, phase) * 3).fill({ color: 0x8a8a8a, alpha: 0.4 });
         g.x = x;
-        g.y = y;
+        g.y = y - CELL / 2;
         this.fxLayer.addChild(g);
         this.particles.push({
           g,

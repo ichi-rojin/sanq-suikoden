@@ -5,8 +5,9 @@ import type { Edge, FactionKind, PlaceKind, PolicyKind } from "../src/model";
 // 執筆座標系（画像分析時の推定グリッド。gx/gyで実グリッドへ再スケールされる）
 const AUTHOR_W = 216;
 const AUTHOR_H = 184;
-export const GRID_W = 200;
-export const GRID_H = 200;
+// Producer指示（2026-07-11 第2次）: 都市数据は不変のまま、延焼範囲を相対的に縮めるためマップを2倍（面積4倍）へ
+export const GRID_W = 400;
+export const GRID_H = 400;
 
 const gx = (x: number): number => Math.round((x * GRID_W) / AUTHOR_W);
 const gy = (y: number): number => Math.round((y * GRID_H) / AUTHOR_H);

@@ -227,7 +227,7 @@ function fillPolygon(grid: WorldGrid, points: ReadonlyArray<[number, number]>, t
   }
 }
 
-// ---- A* 経路探索（8方向・二分ヒープ） ----
+// ---- A* 経路探索（4方向・斜め移動禁止・二分ヒープ） ----
 
 class Heap {
   private keys: number[] = [];
@@ -289,10 +289,11 @@ class Heap {
   }
 }
 
-const DIRS: ReadonlyArray<[number, number, number]> = [
-  [1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
-  [1, 1, 1.41], [1, -1, 1.41], [-1, 1, 1.41], [-1, -1, 1.41],
+// 斜め移動は禁止（軍・武将・護送のいずれも縦横4方向のみ歩む）
+const DIRS: ReadonlyArray<[number, number]> = [
+  [1, 0], [-1, 0], [0, 1], [0, -1],
 ];
+const MIN_STEP_COST = 0.2; // 街道コスト(0.34)を下回るヒューリスティック下限（A*の許容性を保つ）
 
 export type TileCostFn = (t: number, x: number, y: number) => number;
 
@@ -318,8 +319,8 @@ export function findTilePath(
     const y = Math.floor(i / w);
     const dx = Math.abs(x - to.x);
     const dy = Math.abs(y - to.y);
-    // 8方向オクタイル距離 × 最小コスト
-    return (Math.max(dx, dy) + 0.41 * Math.min(dx, dy)) * 0.34;
+    // 4方向マンハッタン距離 × 最小コスト
+    return (dx + dy) * MIN_STEP_COST;
   };
   open.push(hx(start), start);
   const closed = new Uint8Array(grid.terrain.length);
@@ -341,7 +342,7 @@ export function findTilePath(
     closed[cur] = 1;
     const cx = cur % w;
     const cy = Math.floor(cur / w);
-    for (const [dx, dy, mul] of DIRS) {
+    for (const [dx, dy] of DIRS) {
       const nx = cx + dx;
       const ny = cy + dy;
       if (!grid.inBounds(nx, ny)) {
@@ -351,7 +352,7 @@ export function findTilePath(
       if (closed[ni] === 1) {
         continue;
       }
-      const stepCost = costFn(grid.terrain[ni] as number, nx, ny) * mul;
+      const stepCost = costFn(grid.terrain[ni] as number, nx, ny);
       if (!Number.isFinite(stepCost)) {
         continue;
       }
@@ -369,15 +370,48 @@ export function findTilePath(
 // 経路の総移動コスト（日数の見積り = コスト / 1日の移動力）
 export function pathCost(grid: WorldGrid, from: XY, path: readonly XY[]): number {
   let total = 0;
-  let px = from.x;
-  let py = from.y;
   for (const step of path) {
-    const mul = step.x !== px && step.y !== py ? 1.41 : 1;
-    total += moveCostOf(grid.at(step.x, step.y)) * mul;
-    px = step.x;
-    py = step.y;
+    total += moveCostOf(grid.at(step.x, step.y));
   }
+  void from;
   return total;
+}
+
+export interface TileStepResult {
+  x: number;
+  y: number;
+  mp: number;
+  moved: boolean;
+  blocked: boolean;
+}
+
+// 一日ぶんの歩み: 縦横1マスのみ進む（斜め移動禁止・1日1マス限度）。
+// 蓄えた移動力が次の一歩の地形コストに満たない間は足踏みし、じっくりと進軍する
+export function stepOneTile(
+  grid: WorldGrid,
+  x: number,
+  y: number,
+  mp: number,
+  path: XY[],
+  speed: number,
+  blocked?: (t: number, x: number, y: number) => boolean,
+): TileStepResult {
+  const nextMp = mp + speed;
+  if (path.length === 0) {
+    return { x, y, mp: nextMp, moved: false, blocked: false };
+  }
+  const next = path[0] as XY;
+  const t = grid.at(next.x, next.y);
+  const cost = moveCostOf(t);
+  if (!Number.isFinite(cost) || (blocked !== undefined && blocked(t, next.x, next.y))) {
+    path.length = 0;
+    return { x, y, mp: nextMp, moved: false, blocked: true };
+  }
+  if (nextMp < cost) {
+    return { x, y, mp: nextMp, moved: false, blocked: false };
+  }
+  path.shift();
+  return { x: next.x, y: next.y, mp: nextMp - cost, moved: true, blocked: false };
 }
 
 // 最寄りの通行可能タイル（配置補正用）
