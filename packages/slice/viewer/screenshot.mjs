@@ -1,5 +1,5 @@
 // 責務: Viewerの機械的目視検証（headless Chromiumで起動→描画→スクリーンショット保存）。D-8型の証跡ツール
-// 使い方: docker compose exec dev node packages/slice/viewer/screenshot.mjs [待ち秒数] [出力名]
+// 使い方: docker compose exec dev node packages/slice/viewer/screenshot.mjs [待ち秒数] [出力名] [クエリ 例 "?z=0.5&jump=0"]
 import { chromium } from "playwright-core";
 
 const waitSec = Number(process.argv[2] ?? "10");
@@ -23,7 +23,8 @@ page.on("pageerror", (e) => {
   errors += 1;
   console.log("[pageerror]", String(e).slice(0, 300));
 });
-await page.goto("http://localhost:5173/", { waitUntil: "load" });
+const query = process.argv[4] ?? "";
+await page.goto(`http://localhost:5173/${query}`, { waitUntil: "load" });
 await page.waitForTimeout(waitSec * 1000);
 await page.screenshot({ path: `/app/${outName}.png` });
 const date = await page.locator("#date").textContent();

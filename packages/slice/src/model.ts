@@ -74,11 +74,14 @@ export type PlaceKind =
   | "manor" // 豪族の荘園
   | "lairsite" // 山塞を築ける要害
   | "marsh" // 水郷の要害
-  | "pass"; // 街道の難所（林が深い）
+  | "pass" // 街道の難所（林が深い）
+  | "port"; // 渡河・海運の要衝（無主の中継点）
 
 export interface Place {
   id: PlaceId;
   kind: PlaceKind;
+  gridX: number; // 論理グリッド上の座標（可視化と地理表現に使う）
+  gridY: number;
   wealth: number;
   population: number;
   order: number; // 治安

@@ -262,7 +262,7 @@ function rngWeightedWander(world: World, officer: Officer): string | undefined {
     if (place === undefined) {
       return 1;
     }
-    if (place.kind === "pass" || place.kind === "town") {
+    if (place.kind === "pass" || place.kind === "port" || place.kind === "town") {
       return 3;
     }
     if (place.kind === "lairsite" || place.kind === "marsh") {
@@ -285,7 +285,7 @@ function tryRoamActions(world: World, officer: Officer, wanderTarget: string | u
   // 手癖の悪い者は街道に立つ
   if (
     here !== undefined &&
-    here.kind === "pass" &&
+    (here.kind === "pass" || here.kind === "port") &&
     officer.values.aggression >= 60 &&
     officer.values.acquisition >= 45 &&
     world.rng.chance(0.3)

@@ -41,6 +41,8 @@ export interface FactionSeedLike {
 export interface PlaceSeedLike {
   id: string;
   kind: Place["kind"];
+  gridX: number;
+  gridY: number;
   wealth: number;
   population: number;
   order: number;
@@ -81,6 +83,8 @@ export function buildWorld(seed: number, worldSeed: WorldSeed): World {
     const place: Place = {
       id: p.id,
       kind: p.kind,
+      gridX: p.gridX,
+      gridY: p.gridY,
       wealth: p.wealth,
       population: p.population,
       order: p.order,

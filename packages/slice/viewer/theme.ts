@@ -1,27 +1,12 @@
-// 責務: Viewerの見た目定義。拠点の盤上座標・勢力色・地形記号の色対応（描画専用データ、シムには影響しない）
-export interface Vec2 {
-  x: number;
-  y: number;
-}
+// 責務: Viewerの見た目定義。セル寸法・勢力色・地形/技の表示対応（描画専用、シムには影響しない）
+export const CELL = 8; // 1グリッドセルの描画ピクセル
 
-// 世界俯瞰マップの拠点座標（論理座標系 1000x760）
-export const PLACE_POS: Record<string, Vec2> = {
-  jizhou: { x: 450, y: 330 },
-  yuncheng: { x: 280, y: 440 },
-  yanggu: { x: 560, y: 500 },
-  yizhou: { x: 780, y: 330 },
-  zhujiazhuang: { x: 420, y: 590 },
-  zengtou: { x: 700, y: 560 },
-  liangshan: { x: 170, y: 570 },
-  erlong: { x: 640, y: 160 },
-  taohua: { x: 880, y: 480 },
-  yezhulin: { x: 610, y: 280 },
-  dongxi: { x: 140, y: 430 },
-};
-
-// 初期勢力の旗色（三國志IX風に、勢力ごとの識別色を最優先）
+// 初期勢力の旗色（勢力識別を最優先）
 const FIXED_FACTION_COLORS: Record<string, number> = {
-  court: 0xd9a441, // 官府: 金
+  court: 0xd9a441, // 宋朝: 金
+  fangla: 0x9b59b6, // 方臘: 紫
+  tianhu: 0x2e9c8f, // 田虎: 翠
+  wangqing: 0xa9713f, // 王慶: 褐
   zhu: 0x4f9d69, // 祝家荘: 緑
   zeng: 0x3f8fbf, // 曾頭市: 蒼
   "liangshan-band": 0xc0392b, // 梁山泊: 紅
@@ -30,7 +15,7 @@ const FIXED_FACTION_COLORS: Record<string, number> = {
 
 const DYNAMIC_COLOR_POOL = [
   0xe74c3c, 0x8e44ad, 0xe67e22, 0x16a085, 0x2980b9, 0xa0522d, 0x27ae60, 0xd35400,
-  0x7f6fd0, 0xb8860b, 0x5f9ea0, 0xcd5c5c,
+  0x7f6fd0, 0xb8860b, 0x5f9ea0, 0xcd5c5c, 0x6b8e23, 0xba55d3,
 ];
 
 const assigned = new Map<string, number>();
@@ -55,26 +40,42 @@ export function factionColor(factionId: string | undefined): number {
 
 // 合戦リプレイの盤面記号 → タイル色
 export const TERRAIN_COLORS: Record<string, number> = {
-  "・": 0x4c5b3c, // 平地
-  木: 0x2f4d2b, // 林
-  波: 0x2b4a6f, // 水
-  山: 0x6b5d4a, // 崖
-  壁: 0x8d8d8d, // 城壁
-  門: 0xa88a5a, // 城門
-  瓦: 0x55504a, // 瓦礫
-  焦: 0x2b2320, // 焼け跡
-  沼: 0x3a5a52, // 湿地
-  営: 0x7a6248, // 本営
-  炎: 0xe25822, // 炎上中
+  "・": 0x4c5b3c,
+  木: 0x2f4d2b,
+  波: 0x2b4a6f,
+  山: 0x6b5d4a,
+  壁: 0x8d8d8d,
+  門: 0xa88a5a,
+  瓦: 0x55504a,
+  焦: 0x2b2320,
+  沼: 0x3a5a52,
+  営: 0x7a6248,
+  炎: 0xe25822,
 };
 
 export const ATTACKER_GLYPHS = new Set(["Ａ", "Ｂ", "Ｃ", "Ｄ", "Ｅ", "Ｆ"]);
 export const DEFENDER_GLYPHS = new Set(["甲", "乙", "丙", "丁", "戊", "己"]);
 
+// 兵法発動ポップ（SAN9の「発動が癖になる」を移植）
+export const SKILL_POP: Record<string, { label: string; color: number }> = {
+  "clash.charge": { label: "突撃", color: 0xffffff },
+  "clash.volley": { label: "斉射", color: 0xffe9a8 },
+  "clash.stray": { label: "流れ矢!", color: 0xff6a55 },
+  "clash.fire": { label: "火計", color: 0xff9a3d },
+  "clash.sorcery": { label: "妖術", color: 0xc9a0ff },
+  "clash.rockfall": { label: "落石", color: 0xd8cba8 },
+  "clash.ambush": { label: "伏兵", color: 0x8fe08f },
+  "clash.taunt": { label: "挑発", color: 0xffd0d0 },
+  "clash.duel": { label: "一騎討ち", color: 0xffd76a },
+  "clash.duel-respect": { label: "一騎討ち", color: 0xffd76a },
+  "clash.drown": { label: "水没", color: 0x9ad0ff },
+  "clash.burn": { label: "延焼", color: 0xff7a3d },
+  "clash.rescue": { label: "救援", color: 0x9af0c0 },
+};
+
 export const FONT_JP =
   '"Hiragino Sans", "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif';
 
-// ログの種別色（HTML側のclassに対応）
 export function logClassOf(kind: string): string {
   if (kind.startsWith("war.")) return "log-war";
   if (kind.startsWith("faction.")) return "log-faction";
@@ -92,7 +93,7 @@ export function logClassOf(kind: string): string {
   return "log-plain";
 }
 
-// 拠点ID由来の決定論的な擬似乱数（地形装飾の配置に使う。Math.random禁止規約対応）
+// 決定論的な擬似乱数（描画の散らし用。Math.random禁止規約対応）
 export function decoRand(seedText: string, n: number): number {
   let h = 2166136261;
   for (let i = 0; i < seedText.length; i += 1) {

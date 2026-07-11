@@ -8,6 +8,7 @@ export type StoryKind = "war" | "outlaw" | "oath" | "revenge" | "rise" | "collap
 export interface Story {
   kind: StoryKind;
   index: number;
+  coreId: string; // 核イベントID（Viewerが新着通知の同一性判定に使う）
   events: WorldEvent[];
   actors: OfficerId[];
   placeId?: string;
@@ -94,6 +95,7 @@ function makeStory(kind: StoryKind, core: WorldEvent, events: WorldEvent[]): Sto
   return {
     kind,
     index: 0,
+    coreId: core.id,
     events: all,
     actors,
     startTick: first.tick,
@@ -104,8 +106,14 @@ function makeStory(kind: StoryKind, core: WorldEvent, events: WorldEvent[]): Sto
   };
 }
 
-export function compileStories(world: World): Story[] {
-  reweighByCitation(world);
+export interface CompileOptions {
+  reweigh?: boolean; // 因果引用による重み再計算（破壊的加算のためViewerの定期呼び出しでは切る）
+}
+
+export function compileStories(world: World, options?: CompileOptions): Story[] {
+  if (options?.reweigh !== false) {
+    reweighByCitation(world);
+  }
   const index = buildIndex(world);
   const stories: Story[] = [];
 

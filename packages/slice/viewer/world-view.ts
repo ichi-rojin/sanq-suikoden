@@ -1,14 +1,12 @@
-// 責務: 世界俯瞰マップの描画。地形・拠点・武将・軍勢・護送を実シミュレーション状態から毎月更新し、移動をトゥイーンで見せる
+// 責務: 世界俯瞰の実体描画。拠点・武将・軍勢・護送を実シミュレーション状態から毎月更新し、街道に沿った行軍と現象演出を見せる
 import { Container, Graphics, Text } from "pixi.js";
-import type { NameRegistry, Officer, World } from "../src/model";
-import { FONT_JP, PLACE_POS, decoRand, factionColor } from "./theme";
+import type { NameRegistry, World } from "../src/model";
+import { edgeKey } from "./terrain";
+import { CELL, FONT_JP, decoRand, factionColor } from "./theme";
 
-interface Tween {
+interface PathTween {
   target: Container;
-  fx: number;
-  fy: number;
-  tx: number;
-  ty: number;
+  path: Array<[number, number]>;
   t: number;
   dur: number;
 }
@@ -30,6 +28,13 @@ interface Particle {
   dur: number;
 }
 
+interface FloatText {
+  t: Text;
+  vy: number;
+  age: number;
+  dur: number;
+}
+
 interface OfficerSprite {
   root: Container;
   dot: Graphics;
@@ -37,158 +42,109 @@ interface OfficerSprite {
   fading: boolean;
 }
 
+export type SelectHandler = (kind: "officer" | "place" | "army", id: string) => void;
+
 export class WorldView {
   readonly root = new Container();
-  private readonly terrainLayer = new Container();
-  private readonly edgeLayer = new Container();
   private readonly placeLayer = new Container();
   private readonly armyLayer = new Container();
   private readonly officerLayer = new Container();
   private readonly fxLayer = new Container();
+  private readonly armyLines = new Graphics();
 
+  private readonly placeMarks = new Map<string, Container>();
   private readonly placeBodies = new Map<string, Graphics>();
   private readonly placeInfos = new Map<string, Text>();
+  private readonly placeLabels = new Map<string, Text>();
   private readonly officerSprites = new Map<string, OfficerSprite>();
   private readonly armySprites = new Map<string, Container>();
   private readonly convoySprites = new Map<string, Container>();
-  private readonly armyLines = new Graphics();
 
-  private tweens: Tween[] = [];
+  private tweens: PathTween[] = [];
   private pulses: Pulse[] = [];
   private particles: Particle[] = [];
+  private floats: FloatText[] = [];
+  private zoomNow = 1;
+
+  onSelect: SelectHandler = () => undefined;
 
   constructor(
     private readonly world: World,
     private readonly names: NameRegistry,
+    private readonly roadPaths: Map<string, Array<[number, number]>>,
   ) {
-    this.root.addChild(this.terrainLayer);
-    this.root.addChild(this.edgeLayer);
-    this.root.addChild(this.placeLayer);
     this.root.addChild(this.armyLines);
+    this.root.addChild(this.placeLayer);
     this.root.addChild(this.armyLayer);
     this.root.addChild(this.officerLayer);
     this.root.addChild(this.fxLayer);
-    this.drawTerrain();
-    this.drawEdges();
     this.buildPlaces();
     this.applyTick(new Map(), 0);
   }
 
-  private pos(placeId: string): { x: number; y: number } {
-    return PLACE_POS[placeId] ?? { x: 500, y: 380 };
+  pos(placeId: string): { x: number; y: number } {
+    const place = this.world.places.get(placeId);
+    if (place === undefined) {
+      return { x: 0, y: 0 };
+    }
+    return { x: place.gridX * CELL, y: place.gridY * CELL };
   }
 
   // 武将ごとに拠点内の定位置（決定論的な散らし）を持つ
   private officerOffset(officerId: string): { x: number; y: number } {
     const angle = decoRand(officerId, 1) * Math.PI * 2;
-    const radius = 26 + decoRand(officerId, 2) * 22;
+    const radius = 9 + decoRand(officerId, 2) * 9;
     return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * 0.72 };
   }
 
-  // ---- 静的地形（森・山・水郷・街道の趣き） ----
-  private drawTerrain(): void {
-    const g = new Graphics();
-    // 地の色むら
-    for (let i = 0; i < 70; i += 1) {
-      const x = decoRand("ground", i * 2) * 1000;
-      const y = decoRand("ground", i * 2 + 1) * 760;
-      g.circle(x, y, 24 + decoRand("ground2", i) * 46).fill({
-        color: 0x232b1d,
-        alpha: 0.25,
-      });
+  private road(from: string, to: string): Array<[number, number]> {
+    const path = this.roadPaths.get(edgeKey(from, to));
+    if (path !== undefined) {
+      return path;
     }
-    for (const place of this.world.places.values()) {
-      const { x, y } = this.pos(place.id);
-      // 水郷: 青い沼の連なり
-      if (place.terrainWater >= 0.3) {
-        for (let i = 0; i < 9; i += 1) {
-          const dx = (decoRand(place.id, i * 3) - 0.5) * 150;
-          const dy = (decoRand(place.id, i * 3 + 1) - 0.5) * 110;
-          g.ellipse(x + dx, y + dy, 22 + decoRand(place.id, i * 3 + 2) * 22, 12).fill({
-            color: 0x27506b,
-            alpha: 0.5,
-          });
-        }
-      }
-      // 山地: 崖の峰
-      if (place.terrainCliff >= 0.2) {
-        for (let i = 0; i < 5; i += 1) {
-          const dx = (decoRand(place.id, 40 + i * 2) - 0.5) * 130;
-          const dy = (decoRand(place.id, 41 + i * 2) - 0.5) * 80 - 14;
-          const s = 14 + decoRand(place.id, 60 + i) * 14;
-          g.poly([x + dx - s, y + dy + s, x + dx, y + dy - s, x + dx + s, y + dy + s]).fill({
-            color: 0x54483a,
-            alpha: 0.9,
-          });
-          g.poly([x + dx - s * 0.3, y + dy - s * 0.35, x + dx, y + dy - s, x + dx + s * 0.3, y + dy - s * 0.35]).fill({
-            color: 0x8d8071,
-            alpha: 0.9,
-          });
-        }
-      }
-      // 森: 木立の点描
-      if (place.terrainForest >= 0.2) {
-        const count = Math.floor(place.terrainForest * 26);
-        for (let i = 0; i < count; i += 1) {
-          const dx = (decoRand(place.id, 100 + i * 2) - 0.5) * 190;
-          const dy = (decoRand(place.id, 101 + i * 2) - 0.5) * 130 + 8;
-          const s = 5 + decoRand(place.id, 140 + i) * 5;
-          g.poly([x + dx - s, y + dy + s, x + dx, y + dy - s * 1.4, x + dx + s, y + dy + s]).fill({
-            color: 0x1f3d22,
-            alpha: 0.95,
-          });
-        }
-      }
-    }
-    this.terrainLayer.addChild(g);
-  }
-
-  private drawEdges(): void {
-    const g = new Graphics();
-    for (const edge of this.world.edges) {
-      const a = this.pos(edge.from);
-      const b = this.pos(edge.to);
-      // 街道は点線で
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len = Math.hypot(dx, dy);
-      const steps = Math.floor(len / 14);
-      for (let i = 0; i < steps; i += 1) {
-        const t0 = i / steps;
-        const t1 = (i + 0.55) / steps;
-        g.moveTo(a.x + dx * t0, a.y + dy * t0)
-          .lineTo(a.x + dx * t1, a.y + dy * t1)
-          .stroke({ width: 3, color: 0x6a5c46, alpha: 0.55 });
-      }
-    }
-    this.edgeLayer.addChild(g);
+    const a = this.pos(from);
+    const b = this.pos(to);
+    return [
+      [a.x, a.y],
+      [b.x, b.y],
+    ];
   }
 
   private buildPlaces(): void {
     for (const place of this.world.places.values()) {
-      const { x, y } = this.pos(place.id);
       const c = new Container();
-      c.x = x;
-      c.y = y;
+      c.x = place.gridX * CELL;
+      c.y = place.gridY * CELL;
       const body = new Graphics();
       c.addChild(body);
+      const isMinor = place.kind === "pass" || place.kind === "port" || place.kind === "town";
       const label = new Text({
         text: this.names.place(place.id),
-        style: { fontFamily: FONT_JP, fontSize: 15, fill: 0xf0e6d2, stroke: { color: 0x000000, width: 3 } },
+        style: {
+          fontFamily: FONT_JP,
+          fontSize: isMinor ? 9 : place.kind === "capital" ? 13 : 11,
+          fill: isMinor ? 0xbfb49a : 0xf0e6d2,
+          stroke: { color: 0x000000, width: 3 },
+        },
       });
       label.anchor.set(0.5, 0);
-      label.y = 16;
+      label.y = 8;
       c.addChild(label);
       const info = new Text({
         text: "",
-        style: { fontFamily: FONT_JP, fontSize: 10, fill: 0xbfae90, stroke: { color: 0x000000, width: 2 } },
+        style: { fontFamily: FONT_JP, fontSize: 8, fill: 0xbfae90, stroke: { color: 0x000000, width: 2 } },
       });
       info.anchor.set(0.5, 0);
-      info.y = 34;
+      info.y = isMinor ? 18 : 22;
       c.addChild(info);
+      c.eventMode = "static";
+      c.cursor = "pointer";
+      c.on("pointertap", () => this.onSelect("place", place.id));
       this.placeLayer.addChild(c);
+      this.placeMarks.set(place.id, c);
       this.placeBodies.set(place.id, body);
       this.placeInfos.set(place.id, info);
+      this.placeLabels.set(place.id, label);
     }
   }
 
@@ -201,60 +157,83 @@ export class WorldView {
     }
     const color = factionColor(place.owner);
     body.clear();
-    if (place.kind === "capital" || place.kind === "county" || place.kind === "manor" || place.kind === "town") {
-      const s = place.kind === "capital" ? 15 : place.kind === "town" ? 9 : 12;
-      // 城郭
-      body.rect(-s, -s * 0.8, s * 2, s * 1.6).fill({ color: 0x2a241c }).stroke({ width: 2, color });
-      body.rect(-s * 0.45, -s * 1.25, s * 0.9, s * 0.55).fill({ color: 0x2a241c }).stroke({ width: 2, color });
-      // 旗
-      body.moveTo(s * 0.9, -s * 0.8).lineTo(s * 0.9, -s * 1.9).stroke({ width: 2, color: 0x777777 });
-      body.poly([s * 0.9, -s * 1.9, s * 2.1, -s * 1.65, s * 0.9, -s * 1.35]).fill(color);
-    } else if (place.kind === "lairsite" || place.kind === "marsh") {
-      // 山寨: 柵の砦
-      body.poly([-12, 8, 0, -12, 12, 8]).fill({ color: 0x33291f }).stroke({ width: 2, color });
-      for (let i = -1; i <= 1; i += 1) {
-        body.moveTo(i * 8, 9).lineTo(i * 8, 2).stroke({ width: 2, color: 0x77664e });
+    switch (place.kind) {
+      case "capital":
+      case "county":
+      case "manor":
+      case "town": {
+        const s = place.kind === "capital" ? 9 : place.kind === "town" ? 4.5 : 6.5;
+        body.rect(-s, -s * 0.8, s * 2, s * 1.6).fill({ color: 0x2a241c }).stroke({ width: 1.6, color });
+        if (place.kind !== "town") {
+          body.rect(-s * 0.4, -s * 1.3, s * 0.8, s * 0.6).fill({ color: 0x2a241c }).stroke({ width: 1.4, color });
+        }
+        body.moveTo(s * 0.85, -s * 0.8).lineTo(s * 0.85, -s * 2.1).stroke({ width: 1.4, color: 0x888888 });
+        body.poly([s * 0.85, -s * 2.1, s * 2.2, -s * 1.8, s * 0.85, -s * 1.5]).fill(color);
+        break;
       }
-      if (place.owner !== undefined) {
-        body.moveTo(0, -12).lineTo(0, -24).stroke({ width: 2, color: 0x777777 });
-        body.poly([0, -24, 13, -21, 0, -17]).fill(color);
+      case "lairsite":
+      case "marsh": {
+        body.poly([-6, 4, 0, -7, 6, 4]).fill({ color: 0x33291f }).stroke({ width: 1.4, color });
+        if (place.owner !== undefined) {
+          body.moveTo(0, -7).lineTo(0, -15).stroke({ width: 1.4, color: 0x888888 });
+          body.poly([0, -15, 8, -13, 0, -10]).fill(color);
+        }
+        break;
       }
-    } else {
-      // 街道の難所
-      body.circle(0, 0, 5).fill({ color: 0x4a4034 }).stroke({ width: 2, color: 0x6a5c46 });
+      case "pass": {
+        // 関: 門構え
+        body.rect(-5, -4, 2, 8).fill(0x8a7a5e);
+        body.rect(3, -4, 2, 8).fill(0x8a7a5e);
+        body.rect(-6, -6, 12, 2.5).fill(0x8a7a5e);
+        break;
+      }
+      case "port": {
+        // 港: 碇
+        body.circle(0, -3, 2).stroke({ width: 1.4, color: 0x9ec4d8 });
+        body.moveTo(0, -1).lineTo(0, 5).stroke({ width: 1.4, color: 0x9ec4d8 });
+        body.moveTo(-4, 2).lineTo(0, 5).lineTo(4, 2).stroke({ width: 1.4, color: 0x9ec4d8 });
+        break;
+      }
+      default:
+        break;
     }
-    // 戦禍の翳り
     if (place.devastation > 0) {
-      body.circle(0, -2, 18).fill({ color: 0x000000, alpha: Math.min(0.5, place.devastation / 160) });
+      body.circle(0, -2, 10).fill({ color: 0x000000, alpha: Math.min(0.5, place.devastation / 160) });
     }
     const bits: string[] = [];
-    if (place.garrison >= 1) {
+    if (place.garrison >= 50) {
       bits.push(`兵${Math.floor(place.garrison)}`);
     }
     if (place.devastation >= 10) {
-      bits.push(`戦禍${Math.floor(place.devastation)}`);
+      bits.push(`禍${Math.floor(place.devastation)}`);
     }
-    info.text = bits.join("　");
+    info.text = bits.join(" ");
   }
 
-  // ---- 月次更新: 状態反映とトゥイーン起動 ----
+  // ---- 月次更新 ----
   applyTick(prevLocs: Map<string, string>, monthMs: number): void {
     for (const placeId of this.world.places.keys()) {
       this.redrawPlace(placeId);
     }
     this.updateOfficers(prevLocs, monthMs);
-    this.updateArmies(monthMs);
+    this.updateArmies(prevLocs, monthMs);
     this.updateConvoys(monthMs);
   }
 
-  private officerTint(officer: Officer): number {
-    if (officer.status === "prisoner") {
-      return 0x5a4a4a;
+  entityPosition(kind: "officer" | "place" | "army", id: string): { x: number; y: number } | undefined {
+    if (kind === "place") {
+      return this.pos(id);
     }
-    return factionColor(officer.factionId);
+    if (kind === "officer") {
+      const sprite = this.officerSprites.get(id);
+      return sprite !== undefined ? { x: sprite.root.x, y: sprite.root.y } : undefined;
+    }
+    const sprite = this.armySprites.get(id);
+    return sprite !== undefined ? { x: sprite.x, y: sprite.y } : undefined;
   }
 
   private updateOfficers(prevLocs: Map<string, string>, monthMs: number): void {
+    const inArmies = new Set(this.world.armies.flatMap((a) => a.officers));
     for (const officer of this.world.officers.values()) {
       let sprite = this.officerSprites.get(officer.id);
       if (officer.status === "dead") {
@@ -274,33 +253,41 @@ export class WorldView {
         root.addChild(dot);
         const label = new Text({
           text: this.names.officerShort(officer.id),
-          style: { fontFamily: FONT_JP, fontSize: 9, fill: 0xd8d2c0, stroke: { color: 0x000000, width: 2 } },
+          style: { fontFamily: FONT_JP, fontSize: 8, fill: 0xd8d2c0, stroke: { color: 0x000000, width: 2 } },
         });
         label.anchor.set(0.5, 0);
-        label.y = 5;
-        label.alpha = 0.9;
+        label.y = 3.5;
+        label.alpha = 0.92;
         root.addChild(label);
         root.x = tx;
         root.y = ty;
+        root.eventMode = "static";
+        root.cursor = "pointer";
+        root.on("pointertap", () => this.onSelect("officer", officer.id));
         this.officerLayer.addChild(root);
         sprite = { root, dot, label, fading: false };
         this.officerSprites.set(officer.id, sprite);
       }
-      // 身分で見た目を変える: 仕官=塗り丸 / 放浪=中抜き / 囚人=枷色
+      // 軍に編入中は軍旗で表現するため個人の点は消す
+      sprite.root.visible = !inArmies.has(officer.id);
       sprite.dot.clear();
-      const tint = this.officerTint(officer);
+      const tint = officer.status === "prisoner" ? 0x5a4a4a : factionColor(officer.factionId);
       if (officer.status === "roaming" || officer.status === "free") {
-        sprite.dot.circle(0, 0, 4.5).fill({ color: 0x14110c }).stroke({ width: 2, color: tint });
+        sprite.dot.circle(0, 0, 3).fill({ color: 0x14110c }).stroke({ width: 1.4, color: tint });
       } else {
-        sprite.dot.circle(0, 0, 4.5).fill(tint).stroke({ width: 1.5, color: 0x14110c });
+        sprite.dot.circle(0, 0, 3).fill(tint).stroke({ width: 1, color: 0x14110c });
       }
       if (officer.status === "prisoner") {
-        sprite.dot.circle(0, 0, 7).stroke({ width: 1.5, color: 0x993333 });
+        sprite.dot.circle(0, 0, 4.6).stroke({ width: 1, color: 0x993333 });
       }
       const prev = prevLocs.get(officer.id);
-      if (prev !== undefined && prev !== officer.loc && monthMs > 0) {
-        this.addTween(sprite.root, tx, ty, monthMs * 0.65);
-        this.trail(sprite.root.x, sprite.root.y, tx, ty, tint);
+      if (prev !== undefined && prev !== officer.loc && monthMs > 0 && sprite.root.visible) {
+        const path = this.road(prev, officer.loc).map(([x, y], i, arr): [number, number] => {
+          const k = i / Math.max(1, arr.length - 1);
+          return [x + off.x * k, y + off.y * k];
+        });
+        path[0] = [sprite.root.x, sprite.root.y];
+        this.addPathTween(sprite.root, path, monthMs * 0.75);
       } else {
         sprite.root.x = tx;
         sprite.root.y = ty;
@@ -308,7 +295,7 @@ export class WorldView {
     }
   }
 
-  private updateArmies(monthMs: number): void {
+  private updateArmies(prevLocs: Map<string, string>, monthMs: number): void {
     const seen = new Set<string>();
     this.armyLines.clear();
     for (const army of this.world.armies) {
@@ -319,39 +306,54 @@ export class WorldView {
       if (sprite === undefined) {
         sprite = new Container();
         const g = new Graphics();
-        // 軍旗
-        g.moveTo(0, 4).lineTo(0, -22).stroke({ width: 3, color: 0x888888 });
-        g.poly([0, -22, 20, -17, 0, -11]).fill(color).stroke({ width: 1, color: 0x000000 });
-        g.circle(0, 6, 7).fill({ color, alpha: 0.9 }).stroke({ width: 2, color: 0x14110c });
+        // 行軍縦列（兵の点列）と軍旗
+        for (let i = 0; i < 4; i += 1) {
+          g.circle(-6 + i * 4, 6 - (i % 2) * 2, 1.6).fill({ color: 0xd8d2c0, alpha: 0.9 });
+        }
+        g.moveTo(0, 4).lineTo(0, -14).stroke({ width: 2, color: 0x999999 });
+        g.poly([0, -14, 13, -11, 0, -7]).fill(color).stroke({ width: 1, color: 0x000000 });
         sprite.addChild(g);
         const label = new Text({
           text: "",
-          style: { fontFamily: FONT_JP, fontSize: 10, fill: 0xffe9c0, stroke: { color: 0x000000, width: 3 } },
+          style: { fontFamily: FONT_JP, fontSize: 9, fill: 0xffe9c0, stroke: { color: 0x000000, width: 3 } },
         });
         label.anchor.set(0.5, 0);
-        label.y = 12;
+        label.y = 8;
         sprite.addChild(label);
         sprite.x = at.x;
-        sprite.y = at.y - 26;
+        sprite.y = at.y - 8;
+        sprite.eventMode = "static";
+        sprite.cursor = "pointer";
+        const armyId = army.id;
+        sprite.on("pointertap", () => this.onSelect("army", armyId));
         this.armyLayer.addChild(sprite);
         this.armySprites.set(army.id, sprite);
+        prevLocs.set(`army:${army.id}`, army.loc);
       }
       const label = sprite.children[1] as Text;
       label.text = `${this.names.faction(army.factionId)}軍 ${army.troops}`;
-      this.addTween(sprite, at.x, at.y - 26, monthMs * 0.7);
+      const prevLoc = prevLocs.get(`army:${army.id}`);
+      if (prevLoc !== undefined && prevLoc !== army.loc && monthMs > 0) {
+        const path = this.road(prevLoc, army.loc).map(([x, y]): [number, number] => [x, y - 8]);
+        path[0] = [sprite.x, sprite.y];
+        this.addPathTween(sprite, path, monthMs * 0.85);
+      }
       // 進軍先への矢線
       const to = this.pos(army.target);
-      this.armyLines
-        .moveTo(at.x, at.y)
-        .lineTo(to.x, to.y)
-        .stroke({ width: 2, color, alpha: 0.4 });
-      this.armyLines.circle(to.x, to.y, 9).stroke({ width: 2, color, alpha: 0.6 });
+      this.armyLines.moveTo(at.x, at.y).lineTo(to.x, to.y).stroke({ width: 1.6, color, alpha: 0.35 });
+      this.armyLines.circle(to.x, to.y, 6).stroke({ width: 1.6, color, alpha: 0.55 });
     }
     for (const [id, sprite] of this.armySprites) {
       if (!seen.has(id)) {
         sprite.destroy();
         this.armySprites.delete(id);
       }
+    }
+  }
+
+  armyPrevLocs(target: Map<string, string>): void {
+    for (const army of this.world.armies) {
+      target.set(`army:${army.id}`, army.loc);
     }
   }
 
@@ -364,23 +366,23 @@ export class WorldView {
       if (sprite === undefined) {
         sprite = new Container();
         const g = new Graphics();
-        g.rect(-7, -5, 14, 8).fill({ color: 0x3d3428 }).stroke({ width: 2, color: 0x993333 });
-        g.circle(-5, 5, 3).fill(0x222222);
-        g.circle(5, 5, 3).fill(0x222222);
+        g.rect(-4.5, -3, 9, 5).fill({ color: 0x3d3428 }).stroke({ width: 1.4, color: 0x993333 });
+        g.circle(-3, 3, 1.8).fill(0x222222);
+        g.circle(3, 3, 1.8).fill(0x222222);
         sprite.addChild(g);
         const label = new Text({
           text: `護送 ${this.names.officerShort(convoy.prisoner)}`,
-          style: { fontFamily: FONT_JP, fontSize: 10, fill: 0xdd9999, stroke: { color: 0x000000, width: 3 } },
+          style: { fontFamily: FONT_JP, fontSize: 8, fill: 0xdd9999, stroke: { color: 0x000000, width: 2 } },
         });
         label.anchor.set(0.5, 0);
-        label.y = 8;
+        label.y = 5;
         sprite.addChild(label);
         sprite.x = at.x;
-        sprite.y = at.y + 24;
+        sprite.y = at.y + 12;
         this.armyLayer.addChild(sprite);
         this.convoySprites.set(convoy.prisoner, sprite);
       }
-      this.addTween(sprite, at.x, at.y + 24, monthMs * 0.7);
+      this.addPathTween(sprite, [[sprite.x, sprite.y], [at.x, at.y + 12]], monthMs * 0.8);
     }
     for (const [id, sprite] of this.convoySprites) {
       if (!seen.has(id)) {
@@ -390,22 +392,44 @@ export class WorldView {
     }
   }
 
-  // ---- 演出 ----
-  addTween(target: Container, tx: number, ty: number, dur: number): void {
-    this.tweens = this.tweens.filter((t) => t.target !== target);
-    if (dur <= 0) {
-      target.x = tx;
-      target.y = ty;
-      return;
+  // ---- カメラ倍率に応じた表示の遠近法 ----
+  setZoom(zoom: number): void {
+    this.zoomNow = zoom;
+    const counter = Math.min(2.4, Math.max(0.75, 1 / zoom));
+    for (const [, sprite] of this.officerSprites) {
+      sprite.label.visible = zoom >= 1.15;
+      sprite.root.scale.set(counter);
     }
-    this.tweens.push({ target, fx: target.x, fy: target.y, tx, ty, t: 0, dur });
+    for (const [id, label] of this.placeLabels) {
+      const place = this.world.places.get(id);
+      const minor = place !== undefined && (place.kind === "pass" || place.kind === "port" || place.kind === "town");
+      label.visible = !minor || zoom >= 0.9;
+      label.scale.set(counter);
+    }
+    for (const [, info] of this.placeInfos) {
+      info.visible = zoom >= 0.75;
+      info.scale.set(counter);
+    }
+    for (const [, sprite] of this.armySprites) {
+      sprite.scale.set(counter);
+    }
+    for (const [, sprite] of this.convoySprites) {
+      sprite.scale.set(Math.min(2, counter));
+    }
   }
 
-  private trail(fx: number, fy: number, tx: number, ty: number, color: number): void {
-    const g = new Graphics();
-    g.moveTo(fx, fy).lineTo(tx, ty).stroke({ width: 1.5, color, alpha: 0.5 });
-    this.fxLayer.addChild(g);
-    this.pulses.push({ g, x: 0, y: 0, color, t: 0, dur: 1400 });
+  // ---- 演出 ----
+  private addPathTween(target: Container, path: Array<[number, number]>, dur: number): void {
+    this.tweens = this.tweens.filter((t) => t.target !== target);
+    if (dur <= 0 || path.length < 2) {
+      const last = path[path.length - 1];
+      if (last !== undefined) {
+        target.x = last[0];
+        target.y = last[1];
+      }
+      return;
+    }
+    this.tweens.push({ target, path, t: 0, dur });
   }
 
   pulse(placeId: string, color: number): void {
@@ -417,32 +441,51 @@ export class WorldView {
 
   fire(placeId: string): void {
     const { x, y } = this.pos(placeId);
-    for (let i = 0; i < 14; i += 1) {
+    for (let i = 0; i < 12; i += 1) {
       const g = new Graphics();
-      g.circle(0, 0, 2 + decoRand(placeId, i) * 3).fill({
+      g.circle(0, 0, 1.4 + decoRand(placeId, i) * 2.2).fill({
         color: i % 3 === 0 ? 0xffc46a : 0xe25822,
         alpha: 0.9,
       });
-      g.x = x + (decoRand(placeId, i * 7) - 0.5) * 28;
-      g.y = y + (decoRand(placeId, i * 11) - 0.5) * 14;
+      g.x = x + (decoRand(placeId, i * 7) - 0.5) * 16;
+      g.y = y + (decoRand(placeId, i * 11) - 0.5) * 8;
       this.fxLayer.addChild(g);
       this.particles.push({
         g,
-        vx: (decoRand(placeId, i * 13) - 0.5) * 12,
-        vy: -22 - decoRand(placeId, i * 17) * 26,
+        vx: (decoRand(placeId, i * 13) - 0.5) * 8,
+        vy: -14 - decoRand(placeId, i * 17) * 18,
         t: 0,
         dur: 900 + decoRand(placeId, i * 19) * 700,
       });
     }
   }
 
+  floatText(x: number, y: number, message: string, color: number): void {
+    const t = new Text({
+      text: message,
+      style: { fontFamily: FONT_JP, fontSize: 13, fill: color, stroke: { color: 0x000000, width: 3 } },
+    });
+    t.anchor.set(0.5, 1);
+    t.x = x;
+    t.y = y;
+    t.scale.set(Math.min(2.4, Math.max(0.8, 1 / this.zoomNow)));
+    this.fxLayer.addChild(t);
+    this.floats.push({ t, vy: -14, age: 0, dur: 1700 });
+  }
+
   update(deltaMS: number): void {
     for (const tween of [...this.tweens]) {
       tween.t += deltaMS;
       const k = Math.min(1, tween.t / tween.dur);
-      const e = 1 - (1 - k) * (1 - k);
-      tween.target.x = tween.fx + (tween.tx - tween.fx) * e;
-      tween.target.y = tween.fy + (tween.ty - tween.fy) * e;
+      // ポリラインに沿って補間
+      const segs = tween.path.length - 1;
+      const ft = k * segs;
+      const idx = Math.min(segs - 1, Math.floor(ft));
+      const local = ft - idx;
+      const [x0, y0] = tween.path[idx] as [number, number];
+      const [x1, y1] = tween.path[idx + 1] as [number, number];
+      tween.target.x = x0 + (x1 - x0) * local;
+      tween.target.y = y0 + (y1 - y0) * local;
       if (k >= 1) {
         this.tweens = this.tweens.filter((t) => t !== tween);
       }
@@ -455,16 +498,8 @@ export class WorldView {
         this.pulses = this.pulses.filter((p) => p !== pulse);
         continue;
       }
-      if (pulse.x !== 0 || pulse.y !== 0) {
-        pulse.g.clear();
-        pulse.g.circle(pulse.x, pulse.y, 10 + k * 34).stroke({
-          width: 3,
-          color: pulse.color,
-          alpha: 1 - k,
-        });
-      } else {
-        pulse.g.alpha = 1 - k;
-      }
+      pulse.g.clear();
+      pulse.g.circle(pulse.x, pulse.y, 6 + k * 22).stroke({ width: 2.4, color: pulse.color, alpha: 1 - k });
     }
     for (const particle of [...this.particles]) {
       particle.t += deltaMS;
@@ -478,7 +513,17 @@ export class WorldView {
       particle.g.y += (particle.vy * deltaMS) / 1000;
       particle.g.alpha = 1 - k;
     }
-    // 死者のフェードアウト
+    for (const float of [...this.floats]) {
+      float.age += deltaMS;
+      const k = float.age / float.dur;
+      if (k >= 1) {
+        float.t.destroy();
+        this.floats = this.floats.filter((f) => f !== float);
+        continue;
+      }
+      float.t.y += (float.vy * deltaMS) / 1000;
+      float.t.alpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+    }
     for (const [id, sprite] of this.officerSprites) {
       if (sprite.fading) {
         sprite.root.alpha -= deltaMS / 1200;

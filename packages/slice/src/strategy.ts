@@ -12,6 +12,7 @@ import type {
   World,
 } from "./model";
 import {
+  distanceBetween,
   factionOf,
   factionStrength,
   findPath,
@@ -40,7 +41,9 @@ function fieldedMembers(world: World, faction: Faction): Officer[] {
 export function stepAgitation(world: World): void {
   const rng = world.rng;
   if (rng.chance(0.03)) {
-    const place = rng.pick([...world.places.values()].filter((p) => p.kind !== "pass"));
+    const place = rng.pick(
+      [...world.places.values()].filter((p) => p.kind !== "pass" && p.kind !== "port"),
+    );
     place.wealth = Math.max(5, place.wealth - 12);
     place.sentiment = Math.max(0, place.sentiment - 12);
     emit(world, {
@@ -585,11 +588,12 @@ function resolveAssault(world: World, army: Army, faction: Faction, names: NameR
     .filter((o) => o.loc === place.id)
     .slice(0, 6);
   if (defenders.length < 3) {
+    // 広い世界では二辺以内の自領から守将が駆けつける
     const nearby = fieldedMembers(world, defenderFaction).filter(
       (o) =>
         o.loc !== place.id &&
         defenderFaction.cities.includes(o.loc) &&
-        neighborsOf(world, place.id).includes(o.loc),
+        distanceBetween(world, o.loc, place.id) <= 2,
     );
     defenders.push(...nearby.slice(0, 3 - defenders.length));
   }
@@ -951,7 +955,7 @@ export function stepConvoys(world: World, names: NameRegistry): void {
       }
       const path = findPath(world, friend.loc, convoy.loc);
       const step = path[0];
-      if (path.length > 0 && path.length <= 2 && step !== undefined) {
+      if (path.length > 0 && path.length <= 3 && step !== undefined) {
         friend.loc = step;
       }
     }

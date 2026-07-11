@@ -3,43 +3,70 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>縮小世界 — 生きている世界を眺める</title>
+  <title>北宋乱世 — 歴史を眺めるゲーム</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; overflow: hidden; background: #0d0c09; color: #e8dcc0;
       font-family: "Hiragino Sans", "Noto Sans CJK JP", "Yu Gothic UI", "Meiryo", sans-serif; }
-    #topbar { height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 14px;
+    button { background: #2b2417; color: #e8dcc0; border: 1px solid #6a5c46;
+      padding: 3px 9px; cursor: pointer; font-size: 12px; border-radius: 3px; }
+    button:hover { background: #3a3020; }
+    .dim { color: #8a7c60; font-size: 12px; }
+
+    #topbar { height: 46px; display: flex; align-items: center; gap: 12px; padding: 0 12px;
       background: #1b1710; border-bottom: 2px solid #4a3d28; }
-    #date { font-size: 21px; font-weight: 700; color: #f3e3bd; min-width: 190px; }
+    #date { font-size: 20px; font-weight: 700; color: #f3e3bd; min-width: 185px; }
     #pop { color: #9f947e; font-size: 12px; }
     #controls { display: flex; align-items: center; gap: 6px; }
-    #controls button { background: #2b2417; color: #e8dcc0; border: 1px solid #6a5c46;
-      padding: 4px 10px; cursor: pointer; font-size: 13px; border-radius: 3px; }
-    #controls button:hover { background: #3a3020; }
-    #speed { color: #cdb98f; font-size: 13px; min-width: 34px; text-align: center; }
-    #chips { display: flex; gap: 8px; flex-wrap: wrap; overflow: hidden; }
-    .chip { display: inline-flex; align-items: center; gap: 5px; background: #241e13;
-      border: 1px solid #4a3d28; padding: 3px 8px; font-size: 12px; border-radius: 3px; white-space: nowrap; }
-    .chip i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
-    #wrap { display: flex; height: calc(100% - 52px); }
+    #speed { color: #cdb98f; font-size: 13px; min-width: 30px; text-align: center; }
+
+    #wrap { display: flex; height: calc(100% - 46px); }
+
+    #left { width: 240px; background: #14110c; border-right: 2px solid #4a3d28;
+      display: flex; flex-direction: column; overflow-y: auto; }
+    #left h2, #side h2 { font-size: 12px; color: #cdb98f; padding: 7px 10px 5px;
+      border-bottom: 1px solid #33291c; letter-spacing: 2px; }
+    #factions { padding: 6px 10px; }
+    .frow { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 5px; }
+    .frow i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex: none; }
+    #wars { padding: 6px 10px; }
+    .wrow { font-size: 11.5px; margin-bottom: 5px; padding: 3px 6px; background: #1d1812;
+      border-left: 3px solid #666; }
+    .wrow.fighting { color: #ff9a7a; border-left-color: #c0392b; }
+    #stories { padding: 6px 10px; }
+    .srow { font-size: 11.5px; color: #e0cf9f; margin-bottom: 4px; }
+
     #stage { flex: 1; min-width: 0; position: relative; }
     #stage canvas { display: block; }
-    #side { width: 380px; background: #14110c; border-left: 2px solid #4a3d28;
+
+    #side { width: 350px; background: #14110c; border-left: 2px solid #4a3d28;
       display: flex; flex-direction: column; }
-    #side h2 { font-size: 13px; color: #cdb98f; padding: 8px 12px; border-bottom: 1px solid #33291c;
-      letter-spacing: 2px; }
-    #log { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 12.5px; line-height: 1.65; }
+    #info { padding: 8px 12px; border-bottom: 1px solid #33291c; min-height: 70px; max-height: 210px; overflow-y: auto; }
+    .info-title { font-size: 15px; font-weight: 700; color: #f3e3bd; margin-bottom: 4px;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .info-body { font-size: 12px; line-height: 1.6; color: #d8d2c0; }
+    #log { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 12px; line-height: 1.6; }
     #log .line { margin-bottom: 4px; }
-    #log .when { color: #8a7c60; font-size: 11px; margin-right: 2px; }
+    #log .when { color: #8a7c60; font-size: 10.5px; margin-right: 2px; }
     .log-war { color: #ff9a7a; }
     .log-faction { color: #86d0e8; }
     .log-bond { color: #f0c96a; }
     .log-grudge { color: #e87a7a; }
     .log-agit { color: #b0b8c2; }
-    .log-clash { color: #cbb79a; }
+    .log-clash { color: #b8a68a; font-size: 11px; }
     .log-plain { color: #d8d2c0; }
-    #log::-webkit-scrollbar { width: 8px; }
-    #log::-webkit-scrollbar-thumb { background: #4a3d28; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-thumb { background: #4a3d28; }
+
+    #toasts { position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; gap: 6px; z-index: 10; pointer-events: none; }
+    .toast { background: rgba(20,16,10,0.92); border: 1px solid #8a744e; color: #f3e3bd;
+      padding: 8px 18px; font-size: 14px; border-radius: 4px; text-align: center;
+      animation: toastin 0.3s ease-out; }
+    .toast.rise { border-color: #7ddc8f; }
+    .toast.fall { border-color: #e87a7a; }
+    .toast.story { border-color: #f0c96a; color: #ffe9b0; }
+    @keyframes toastin { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; } }
   </style>
 </head>
 <body>
@@ -50,13 +77,25 @@
       <button id="btn-slow">◀ 遅く</button>
       <span id="speed">×1</span>
       <button id="btn-fast">▶ 速く</button>
+      <button id="btn-jump">戦場追跡: 入</button>
+      <button id="btn-home">中原へ</button>
     </div>
     <span id="pop"></span>
-    <div id="chips"></div>
   </header>
   <div id="wrap">
-    <div id="stage"></div>
+    <aside id="left">
+      <h2>勢力</h2>
+      <div id="factions"></div>
+      <h2>戦況</h2>
+      <div id="wars"></div>
+      <h2>物語書架</h2>
+      <div id="stories"></div>
+    </aside>
+    <div id="stage">
+      <div id="toasts"></div>
+    </div>
     <aside id="side">
+      <div id="info"></div>
       <h2>実況 ─ 世界の出来事</h2>
       <div id="log"></div>
     </aside>

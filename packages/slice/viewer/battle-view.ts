@@ -1,154 +1,152 @@
-// 責務: 合戦の実況再生。シミュレーションが記録したリプレイ盤面を、延焼・矢・突撃など「世界の現象」としてそのまま可視化する
+// 責務: 合戦のマップ上再生。リプレイ盤面を戦場の実座標に重ね、延焼・矢・突撃を「世界の現象」として世界と並行して見せる
 import { Container, Graphics, Text } from "pixi.js";
 import type { BattleReplay, NameRegistry, WorldEvent } from "../src/model";
-import { ATTACKER_GLYPHS, DEFENDER_GLYPHS, FONT_JP, TERRAIN_COLORS, decoRand, factionColor } from "./theme";
+import {
+  ATTACKER_GLYPHS,
+  CELL,
+  DEFENDER_GLYPHS,
+  FONT_JP,
+  TERRAIN_COLORS,
+  decoRand,
+  factionColor,
+} from "./theme";
 
-const CELL = 30;
 const GRID = 13;
-const BASE_FRAME_MS = 430;
-const PANEL_W = GRID * CELL + 40;
+const BCELL = CELL * 1.35; // 戦場タイルの描画寸法
+const SPAN = GRID * BCELL;
 
-export class BattleView {
-  readonly root = new Container();
-  playing = false;
+interface ActiveBattle {
+  replay: BattleReplay;
+  container: Container;
+  marker: Container; // 引き（低倍率）では盤面の代わりに交戦マーカーを見せる
+  grid: Graphics;
+  fx: Graphics;
+  unitLayer: Container;
+  frameIndex: number;
+  frameTimer: number;
+  holdTimer: number;
+  x: number;
+  y: number;
+  flicker: number;
+}
 
-  private replay: BattleReplay | undefined;
-  private frameIndex = 0;
-  private frameTimer = 0;
-  private holdTimer = 0;
-  private onDone: (() => void) | undefined;
-  private flicker = 0;
+export type BattleEventSink = (event: WorldEvent, x: number, y: number) => void;
 
-  private readonly panel = new Graphics();
-  private readonly title: Text;
-  private readonly subtitle: Text;
-  private readonly grid = new Graphics();
-  private readonly unitLayer = new Container();
-  private readonly fx = new Graphics();
-  private readonly notes: Text;
-  private readonly legend: Text;
+export class BattleMapView {
+  readonly root = new Container(); // WorldViewと同じワールド座標系に置く
+  private active: ActiveBattle[] = [];
+  private zoomNow = 1;
   private eventOf: (id: string) => WorldEvent | undefined = () => undefined;
-  private narrate: (event: WorldEvent) => string = () => "";
-  private speedOf: () => number = () => 1;
+  onFrameEvent: BattleEventSink = () => undefined;
 
-  constructor(private readonly names: NameRegistry) {
-    this.root.visible = false;
-    this.root.addChild(this.panel);
-    this.title = new Text({
-      text: "",
-      style: { fontFamily: FONT_JP, fontSize: 17, fill: 0xf3e3bd, stroke: { color: 0x000000, width: 3 } },
-    });
-    this.title.x = 20;
-    this.title.y = 12;
-    this.root.addChild(this.title);
-    this.subtitle = new Text({
-      text: "",
-      style: { fontFamily: FONT_JP, fontSize: 12, fill: 0xcdb98f },
-    });
-    this.subtitle.x = 20;
-    this.subtitle.y = 36;
-    this.root.addChild(this.subtitle);
-    this.grid.x = 20;
-    this.grid.y = 58;
-    this.root.addChild(this.grid);
-    this.unitLayer.x = 20;
-    this.unitLayer.y = 58;
-    this.root.addChild(this.unitLayer);
-    this.fx.x = 20;
-    this.fx.y = 58;
-    this.root.addChild(this.fx);
-    this.notes = new Text({
-      text: "",
-      style: {
-        fontFamily: FONT_JP,
-        fontSize: 12,
-        fill: 0xe8dcc0,
-        wordWrap: true,
-        wordWrapWidth: PANEL_W - 40,
-        lineHeight: 17,
-      },
-    });
-    this.notes.x = 20;
-    this.notes.y = 58 + GRID * CELL + 10;
-    this.root.addChild(this.notes);
-    this.legend = new Text({
-      text: "",
-      style: { fontFamily: FONT_JP, fontSize: 10, fill: 0x9f947e, wordWrap: true, wordWrapWidth: PANEL_W - 40 },
-    });
-    this.legend.x = 20;
-    this.legend.y = 58 + GRID * CELL + 86;
-    this.root.addChild(this.legend);
+  constructor(private readonly names: NameRegistry) {}
 
-    this.root.eventMode = "static";
-    this.root.on("pointerdown", () => this.finish());
-  }
-
-  connectWorldEvents(eventOf: (id: string) => WorldEvent | undefined, narrate: (event: WorldEvent) => string): void {
+  connectEvents(eventOf: (id: string) => WorldEvent | undefined): void {
     this.eventOf = eventOf;
-    this.narrate = narrate;
   }
 
-  setSpeed(speedOf: () => number): void {
-    this.speedOf = speedOf;
+  get playing(): boolean {
+    return this.active.length > 0;
   }
 
-  play(replay: BattleReplay, onDone: () => void): void {
-    this.replay = replay;
-    this.onDone = onDone;
-    this.frameIndex = 0;
-    this.frameTimer = 0;
-    this.holdTimer = 0;
-    this.playing = true;
-    this.root.visible = true;
-    this.root.alpha = 1;
-
-    const atk = factionColor(replay.attackerFaction);
-    const def = factionColor(replay.defenderFaction);
-    const panelH = 58 + GRID * CELL + 130;
-    this.panel.clear();
-    this.panel
-      .rect(0, 0, PANEL_W, panelH)
-      .fill({ color: 0x100d09, alpha: 0.93 })
-      .stroke({ width: 3, color: 0x8a744e });
-    this.panel.rect(0, 0, PANEL_W, 6).fill(atk);
-    this.panel.rect(0, panelH - 6, PANEL_W, 6).fill(def);
-
-    this.title.text = `合戦　${this.names.place(replay.loc)}${replay.siege ? "（攻城）" : ""}`;
-    this.subtitle.text = `寄せ手 ${this.names.faction(replay.attackerFaction, replay.tick)}　対　守り手 ${this.names.faction(replay.defenderFaction, replay.tick)}　（押せば早送り）`;
-    this.legend.text = replay.units
-      .map((u) => `${u.glyph}=${this.names.officerShort(u.officerId)}`)
-      .join("　");
-    this.renderFrame();
+  // カメラ追跡用: 直近の合戦の中心
+  primaryPosition(): { x: number; y: number } | undefined {
+    const last = this.active[this.active.length - 1];
+    return last === undefined ? undefined : { x: last.x, y: last.y };
   }
 
-  private finish(): void {
-    if (!this.playing) {
-      return;
+  play(replay: BattleReplay, x: number, y: number): void {
+    const container = new Container();
+    container.x = x - SPAN / 2;
+    container.y = y - SPAN / 2;
+
+    const backdrop = new Graphics();
+    backdrop
+      .roundRect(-8, -22, SPAN + 16, SPAN + 30, 6)
+      .fill({ color: 0x0d0a07, alpha: 0.82 })
+      .stroke({ width: 2, color: 0x8a744e });
+    backdrop.rect(-8, -22, SPAN + 16, 4).fill(factionColor(replay.attackerFaction));
+    backdrop.rect(-8, SPAN + 4, SPAN + 16, 4).fill(factionColor(replay.defenderFaction));
+    container.addChild(backdrop);
+
+    const title = new Text({
+      text: `合戦　${this.names.place(replay.loc)}${replay.siege ? "（攻城）" : ""}`,
+      style: { fontFamily: FONT_JP, fontSize: 11, fill: 0xf3e3bd, stroke: { color: 0x000000, width: 3 } },
+    });
+    title.x = 0;
+    title.y = -20;
+    container.addChild(title);
+
+    const grid = new Graphics();
+    container.addChild(grid);
+    const unitLayer = new Container();
+    container.addChild(unitLayer);
+    const fx = new Graphics();
+    container.addChild(fx);
+
+    this.root.addChild(container);
+
+    // 引きの倍率用マーカー（交差する刃と地名）
+    const marker = new Container();
+    const blades = new Graphics();
+    blades.moveTo(-6, -6).lineTo(6, 6).stroke({ width: 2.4, color: 0xff5544 });
+    blades.moveTo(6, -6).lineTo(-6, 6).stroke({ width: 2.4, color: 0xffd0a0 });
+    marker.addChild(blades);
+    const markerLabel = new Text({
+      text: `交戦 ${this.names.place(replay.loc)}`,
+      style: { fontFamily: FONT_JP, fontSize: 12, fill: 0xffb0a0, stroke: { color: 0x000000, width: 3 } },
+    });
+    markerLabel.anchor.set(0.5, 0);
+    markerLabel.y = 8;
+    marker.addChild(markerLabel);
+    marker.x = x;
+    marker.y = y;
+    this.root.addChild(marker);
+
+    const battle: ActiveBattle = {
+      replay,
+      container,
+      marker,
+      grid,
+      fx,
+      unitLayer,
+      frameIndex: 0,
+      frameTimer: 0,
+      holdTimer: 0,
+      x,
+      y,
+      flicker: 0,
+    };
+    this.active.push(battle);
+    this.applyZoomTo(battle);
+    this.renderFrame(battle);
+  }
+
+  // 低倍率では盤面を畳んでマーカーだけにする（全景が黒箱で覆われないように）
+  setZoom(zoom: number): void {
+    this.zoomNow = zoom;
+    for (const battle of this.active) {
+      this.applyZoomTo(battle);
     }
-    this.playing = false;
-    this.root.visible = false;
-    this.replay = undefined;
-    const done = this.onDone;
-    this.onDone = undefined;
-    if (done !== undefined) {
-      done();
-    }
   }
 
-  private renderFrame(): void {
-    const replay = this.replay;
-    if (replay === undefined) {
-      return;
-    }
-    const frame = replay.frames[this.frameIndex] ?? replay.frames[replay.frames.length - 1];
+  private applyZoomTo(battle: ActiveBattle): void {
+    const showBoard = this.zoomNow >= 0.8;
+    battle.container.visible = showBoard;
+    battle.marker.visible = !showBoard;
+    battle.marker.scale.set(Math.min(2.4, Math.max(1, 1 / this.zoomNow)));
+  }
+
+  private renderFrame(battle: ActiveBattle): void {
+    const frame = battle.replay.frames[battle.frameIndex];
     if (frame === undefined) {
       return;
     }
-    this.grid.clear();
-    this.fx.clear();
-    this.unitLayer.removeChildren();
-    const atk = factionColor(replay.attackerFaction);
-    const def = factionColor(replay.defenderFaction);
+    const atk = factionColor(battle.replay.attackerFaction);
+    const def = factionColor(battle.replay.defenderFaction);
+    battle.grid.clear();
+    battle.fx.clear();
+    battle.unitLayer.removeChildren();
 
     for (let y = 0; y < frame.grid.length; y += 1) {
       const row = [...(frame.grid[y] ?? "")];
@@ -156,114 +154,107 @@ export class BattleView {
         const ch = row[x] ?? "・";
         const isAtk = ATTACKER_GLYPHS.has(ch);
         const isDef = DEFENDER_GLYPHS.has(ch);
-        const base = TERRAIN_COLORS[ch];
-        let color = base ?? 0x4c5b3c;
+        let color = TERRAIN_COLORS[ch] ?? 0x4c5b3c;
         if (ch === "炎") {
-          // 炎は揺らめく
-          color = (this.flicker + x + y) % 2 === 0 ? 0xe25822 : 0xff9a3d;
+          color = (battle.flicker + x + y) % 2 === 0 ? 0xe25822 : 0xff9a3d;
         }
         if (isAtk || isDef) {
           color = 0x4c5b3c;
         }
-        this.grid
-          .rect(x * CELL, y * CELL, CELL - 1, CELL - 1)
-          .fill({ color, alpha: ch === "焦" ? 0.95 : 0.88 });
+        battle.grid
+          .rect(x * BCELL, y * BCELL, BCELL - 0.6, BCELL - 0.6)
+          .fill({ color, alpha: 0.92 });
         if (ch === "木") {
-          this.grid.poly([
-            x * CELL + CELL / 2 - 7, y * CELL + CELL - 6,
-            x * CELL + CELL / 2, y * CELL + 5,
-            x * CELL + CELL / 2 + 7, y * CELL + CELL - 6,
-          ]).fill({ color: 0x1d331c, alpha: 0.95 });
+          battle.grid
+            .poly([
+              x * BCELL + BCELL / 2 - 3, y * BCELL + BCELL - 2,
+              x * BCELL + BCELL / 2, y * BCELL + 2,
+              x * BCELL + BCELL / 2 + 3, y * BCELL + BCELL - 2,
+            ])
+            .fill({ color: 0x1d331c, alpha: 0.95 });
         }
         if (isAtk || isDef) {
-          const cx = x * CELL + CELL / 2;
-          const cy = y * CELL + CELL / 2;
+          const cx = x * BCELL + BCELL / 2;
+          const cy = y * BCELL + BCELL / 2;
           const g = new Graphics();
-          g.circle(cx, cy, 11).fill(isAtk ? atk : def).stroke({ width: 2, color: 0x0d0a07 });
-          this.unitLayer.addChild(g);
-          const t = new Text({
-            text: ch,
-            style: { fontFamily: FONT_JP, fontSize: 13, fill: 0xffffff, stroke: { color: 0x000000, width: 2 } },
-          });
-          t.anchor.set(0.5);
-          t.x = cx;
-          t.y = cy;
-          this.unitLayer.addChild(t);
+          g.circle(cx, cy, 4.6).fill(isAtk ? atk : def).stroke({ width: 1.2, color: 0x0d0a07 });
+          battle.unitLayer.addChild(g);
+          const unit = battle.replay.units.find((u) => u.glyph === ch);
+          if (unit !== undefined) {
+            const label = new Text({
+              text: this.names.officerShort(unit.officerId),
+              style: { fontFamily: FONT_JP, fontSize: 6.5, fill: 0xe8dcc0, stroke: { color: 0x000000, width: 2 } },
+            });
+            label.anchor.set(0.5, 0);
+            label.x = cx;
+            label.y = cy + 4.5;
+            battle.unitLayer.addChild(label);
+          }
         }
       }
     }
 
-    // 注記（この刻に起きた現象）と、現象ごとの盤上演出
-    const lines: string[] = [];
-    for (const id of frame.notes.slice(-4)) {
+    // この刻に起きた現象: 兵法ポップと盤上の走り書き、外部（ログ）への通知
+    for (const id of frame.notes) {
       const event = this.eventOf(id);
       if (event === undefined) {
         continue;
       }
-      lines.push(`・${this.narrate(event)}`);
-      this.playNoteFx(event.kind, id);
+      this.onFrameEvent(event, battle.x, battle.y);
+      this.noteFx(battle, event.kind, id);
     }
-    this.notes.text = lines.join("\n");
   }
 
-  // 矢の雨・流れ矢・突撃・妖術などを盤面上の走り書きで表す
-  private playNoteFx(kind: string, seed: string): void {
-    const w = GRID * CELL;
+  private noteFx(battle: ActiveBattle, kind: string, seed: string): void {
     const r = (n: number): number => decoRand(seed, n);
     if (kind === "clash.volley" || kind === "clash.stray") {
       const color = kind === "clash.stray" ? 0xff5544 : 0xd8cba8;
-      for (let i = 0; i < 7; i += 1) {
-        const x0 = r(i * 2) * w;
-        const y0 = r(i * 2 + 1) * w * 0.4;
-        this.fx.moveTo(x0, y0).lineTo(x0 + 14, y0 + 30).stroke({ width: 2, color, alpha: 0.85 });
+      for (let i = 0; i < 6; i += 1) {
+        const x0 = r(i * 2) * SPAN;
+        const y0 = r(i * 2 + 1) * SPAN * 0.4;
+        battle.fx.moveTo(x0, y0).lineTo(x0 + 6, y0 + 14).stroke({ width: 1.2, color, alpha: 0.9 });
       }
     } else if (kind === "clash.sorcery") {
-      for (let i = 0; i < 4; i += 1) {
-        const x0 = w * 0.2 + r(i) * w * 0.6;
-        this.fx
+      for (let i = 0; i < 3; i += 1) {
+        const x0 = SPAN * 0.2 + r(i) * SPAN * 0.6;
+        battle.fx
           .moveTo(x0, 0)
-          .lineTo(x0 - 8, w * 0.3)
-          .lineTo(x0 + 6, w * 0.55)
-          .stroke({ width: 3, color: 0xb388ff, alpha: 0.9 });
+          .lineTo(x0 - 4, SPAN * 0.3)
+          .lineTo(x0 + 3, SPAN * 0.55)
+          .stroke({ width: 1.6, color: 0xb388ff, alpha: 0.9 });
       }
-    } else if (kind === "clash.charge" || kind === "clash.knockback") {
-      const y0 = r(1) * w;
-      this.fx.moveTo(w * 0.15, y0).lineTo(w * 0.85, y0).stroke({ width: 4, color: 0xffffff, alpha: 0.35 });
     } else if (kind === "clash.rockfall") {
-      for (let i = 0; i < 10; i += 1) {
-        this.fx.circle(r(i * 3) * w, r(i * 3 + 1) * w * 0.5, 3 + r(i) * 4).fill({ color: 0x8d8071, alpha: 0.8 });
+      for (let i = 0; i < 8; i += 1) {
+        battle.fx
+          .circle(r(i * 3) * SPAN, r(i * 3 + 1) * SPAN * 0.5, 1.5 + r(i) * 2)
+          .fill({ color: 0x8d8071, alpha: 0.85 });
       }
     }
   }
 
-  update(deltaMS: number): void {
-    if (!this.playing || this.replay === undefined) {
-      return;
-    }
-    const frameMs = BASE_FRAME_MS / this.speedOf();
-    this.flicker += deltaMS > 120 ? 1 : 0;
-    this.frameTimer += deltaMS;
-    if (this.frameTimer >= frameMs) {
-      this.frameTimer = 0;
-      this.flicker += 1;
-      if (this.frameIndex < this.replay.frames.length - 1) {
-        this.frameIndex += 1;
-        this.renderFrame();
+  // 合戦はおよそ2.5ヶ月ぶんの世界時間をかけて再生される
+  update(deltaMS: number, monthMs: number): void {
+    for (const battle of [...this.active]) {
+      const frameMs = Math.max(120, (monthMs * 2.5) / battle.replay.frames.length);
+      battle.frameTimer += deltaMS;
+      if (battle.frameTimer < frameMs) {
+        continue;
+      }
+      battle.frameTimer = 0;
+      battle.flicker += 1;
+      if (battle.frameIndex < battle.replay.frames.length - 1) {
+        battle.frameIndex += 1;
+        this.renderFrame(battle);
       } else {
-        this.holdTimer += frameMs;
-        this.renderFrame();
-        if (this.holdTimer >= 1200) {
-          this.finish();
+        battle.holdTimer += frameMs;
+        if (battle.holdTimer >= 900) {
+          battle.container.destroy();
+          battle.marker.destroy();
+          this.active = this.active.filter((b) => b !== battle);
         }
       }
+      // マーカーの点滅
+      battle.marker.alpha = battle.flicker % 2 === 0 ? 1 : 0.55;
     }
-  }
-
-  get panelWidth(): number {
-    return PANEL_W;
-  }
-
-  get panelHeight(): number {
-    return 58 + GRID * CELL + 130;
   }
 }
