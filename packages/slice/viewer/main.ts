@@ -607,6 +607,12 @@ async function boot(): Promise<void> {
     }
   };
 
+  // 支配権が動きうる出来事（重い勢力図の再計算は、動いた時だけ・1日1回にまとめる）
+  const TERRITORY_EVENTS = new Set([
+    "war.city-fall", "faction.rise", "faction.fall", "faction.lair", "faction.disband", "war.raze",
+  ]);
+  let territoryDirty = false;
+
   const step = (): void => {
     const evStart = world.events.length;
     stepDay(world, names);
@@ -617,6 +623,9 @@ async function boot(): Promise<void> {
       eventIndex.set(event.id, event);
       mapFx(event);
       bigNews(event);
+      if (TERRITORY_EVENTS.has(event.kind)) {
+        territoryDirty = true;
+      }
       // 兵法発動ポップ（SAN9の癖になる瞬間）
       const pop = SKILL_POP[event.kind];
       const px = eventAtPx(event);
@@ -643,6 +652,11 @@ async function boot(): Promise<void> {
       terrainTexture.source.update();
     }
     worldView.applyTick(dayMs());
+    // 支配領域が動いたら、あるいは節目ごとに勢力図を塗り直す（毎フレームではなく必要な時だけ）
+    if (territoryDirty || world.tick % 20 === 0) {
+      territoryDirty = false;
+      worldView.refreshTerritory();
+    }
     refreshHeader();
     if (world.tick % 5 === 0) {
       refreshFactions();

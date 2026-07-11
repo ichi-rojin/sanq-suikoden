@@ -1,9 +1,10 @@
 // 責務: 世界俯瞰の実体描画。拠点・武将・軍勢・護送・交戦・火災・矢・亡骸を実シミュレーション状態から毎日更新する
 // 軍勢はタイルを一歩ずつ、等速かつイージング無しでじっくりと進み、交戦中は各隊が世界地図の上に散開する
 // 戦争画面は無い——世界そのものが戦場である。アイコンは常にタイルの中心に置く
-import { Container, Graphics, Text } from "pixi.js";
+import { Container, Graphics, Sprite, Text, Texture } from "pixi.js";
 import type { NameRegistry, World } from "../src/model";
 import { armyTroops, placePos } from "../src/model";
+import { computeTerritory } from "./territory";
 import { CELL, FONT_JP, decoRand, factionColor } from "./theme";
 
 interface Pulse {
@@ -84,6 +85,23 @@ function drawFormation(g: Graphics, seedKey: string, color: number, troops: numb
   g.circle(0, 0, 0.9).fill(0xffe9c0); // 将旗（隊の中心。指揮官の位置）
 }
 
+// 行軍中の軍勢を「一人の武将」ではなく「密集した部隊」に見せる——隊列のブロックに旌旗を立てる
+function drawArmyBlock(g: Graphics, color: number, troops: number): void {
+  g.clear();
+  const w = 20;
+  const h = 13;
+  g.roundRect(-w / 2, -h, w, h, 2).fill({ color: 0x211c14, alpha: 0.92 }).stroke({ width: 1.8, color });
+  // 兵の密度を示す横列（多いほど列が増え、密集して見える）
+  const ranks = Math.max(2, Math.min(4, 1 + Math.round(troops / 700)));
+  for (let r = 0; r < ranks; r += 1) {
+    const ry = -h + 3 + (r * (h - 6)) / Math.max(1, ranks - 1);
+    g.moveTo(-w / 2 + 3, ry).lineTo(w / 2 - 3, ry).stroke({ width: 1.2, color, alpha: 0.6 });
+  }
+  // 旗竿と旌旗
+  g.moveTo(0, -h).lineTo(0, -h - 11).stroke({ width: 1.8, color: 0xd8d2c0 });
+  g.poly([0, -h - 11, 11, -h - 8, 0, -h - 5]).fill(color).stroke({ width: 1, color: 0x000000 });
+}
+
 function snapTo(s: MoveState, x: number, y: number): void {
   s.root.x = x;
   s.root.y = y;
@@ -97,6 +115,12 @@ function snapTo(s: MoveState, x: number, y: number): void {
 
 export class WorldView {
   readonly root = new Container();
+  private readonly territoryLayer = new Container(); // 勢力の支配領域（色分けタイント）
+  private readonly territorySprite: Sprite;
+  private readonly territoryCanvas: HTMLCanvasElement;
+  private readonly relationG = new Graphics(); // 勢力間の敵対関係線
+  private readonly factionLabelLayer = new Container();
+  private readonly factionLabels = new Map<string, Text>();
   private readonly trailG = new Graphics(); // 行軍の足跡と進軍矢線
   private readonly corpseG = new Graphics(); // 世界に残る亡骸
   private readonly siegeG = new Graphics(); // 攻囲される都市を囲う輪
@@ -130,6 +154,15 @@ export class WorldView {
     private readonly world: World,
     private readonly names: NameRegistry,
   ) {
+    this.territoryCanvas = document.createElement("canvas");
+    this.territoryCanvas.width = world.grid.w;
+    this.territoryCanvas.height = world.grid.h;
+    this.territorySprite = new Sprite(Texture.from(this.territoryCanvas));
+    this.territorySprite.scale.set(CELL);
+    this.territoryLayer.addChild(this.territorySprite);
+    this.root.addChild(this.territoryLayer);
+    this.root.addChild(this.relationG);
+    this.root.addChild(this.factionLabelLayer);
     this.root.addChild(this.trailG);
     this.root.addChild(this.siegeG);
     this.root.addChild(this.corpseG);
@@ -140,6 +173,7 @@ export class WorldView {
     this.root.addChild(this.liveFx);
     this.root.addChild(this.fxLayer);
     this.buildPlaces();
+    this.refreshTerritory();
     this.applyTick(0);
   }
 
@@ -350,6 +384,19 @@ export class WorldView {
 
       // 行軍の足跡（兵列）と進軍先の矢線
       if (!fighting) {
+        // 補給線: 辿ってきた道を勢力色の帯で繋ぐ（兵站が伸びている様子）
+        if (army.trail.length > 0) {
+          this.trailG.moveTo(armyCenter.x, armyCenter.y);
+          for (let i = army.trail.length - 1; i >= 0; i -= 1) {
+            const step = army.trail[i];
+            if (step === undefined) {
+              continue;
+            }
+            const sc = tileCenter(step.x, step.y);
+            this.trailG.lineTo(sc.x, sc.y);
+          }
+          this.trailG.stroke({ width: 2.2, color, alpha: 0.28 });
+        }
         for (let i = 0; i < army.trail.length; i += 1) {
           const step = army.trail[i];
           if (step === undefined) {
@@ -360,15 +407,16 @@ export class WorldView {
             .circle(sc.x + (i % 2) * 2 - 1, sc.y + ((i + 1) % 2) * 2 - 1, 1.5)
             .fill({ color: 0xd8d2c0, alpha: 0.25 + (i / army.trail.length) * 0.55 });
         }
+        // 進軍先への矢線は破線気味に（未だ踏んでいない道と分かるよう帯より細く）
         const to = this.pos(army.target);
         this.trailG
           .moveTo(armyCenter.x, armyCenter.y)
           .lineTo(to.x, to.y)
-          .stroke({ width: 1.4, color, alpha: 0.3 });
-        this.trailG.circle(to.x, to.y, 6).stroke({ width: 1.6, color, alpha: 0.5 });
+          .stroke({ width: 1.2, color, alpha: 0.32 });
+        this.trailG.circle(to.x, to.y, 6).stroke({ width: 1.8, color, alpha: 0.55 });
       }
 
-      // 軍旗（行軍時のみ。交戦時は各隊が主役）
+      // 軍勢の塊（行軍時のみ。交戦時は各隊が主役）。「一人の武将」ではなく「部隊」と分かる見た目にする
       let sprite = this.armySprites.get(army.id);
       const flagTx = armyCenter.x;
       const flagTy = armyCenter.y - 8;
@@ -381,7 +429,7 @@ export class WorldView {
           style: { fontFamily: FONT_JP, fontSize: 9, fill: 0xffe9c0, stroke: { color: 0x000000, width: 3 } },
         });
         label.anchor.set(0.5, 0);
-        label.y = 8;
+        label.y = 6;
         root.addChild(label);
         root.eventMode = "static";
         root.cursor = "pointer";
@@ -391,15 +439,10 @@ export class WorldView {
         sprite = { root, label, flag, fromX: flagTx, fromY: flagTy, toX: flagTx, toY: flagTy, t: 1, dur: 1 };
         snapTo(sprite, flagTx, flagTy);
         this.armySprites.set(army.id, sprite);
-        flag.clear();
-        for (let i = 0; i < 4; i += 1) {
-          flag.circle(-6 + i * 4, 6 - (i % 2) * 2, 1.6).fill({ color: 0xd8d2c0, alpha: 0.9 });
-        }
-        flag.moveTo(0, 4).lineTo(0, -14).stroke({ width: 2, color: 0x999999 });
-        flag.poly([0, -14, 13, -11, 0, -7]).fill(color).stroke({ width: 1, color: 0x000000 });
       } else {
         retarget(sprite, flagTx, flagTy, dayMs);
       }
+      drawArmyBlock(sprite.flag, color, armyTroops(army));
       sprite.root.visible = !fighting;
       sprite.label.text = `${this.names.faction(army.factionId)}軍 ${armyTroops(army)}`;
 
@@ -536,6 +579,105 @@ export class WorldView {
     }
   }
 
+  // 勢力の支配領域を塗り直す（Europa Universalis風の勢力図）。都市の所有交代など、
+  // 領域が動きうる出来事の後に呼ぶ——毎フレームではなく、必要な時にだけ計算する重い処理
+  refreshTerritory(): void {
+    const { owner, factionIds, centroids } = computeTerritory(this.world);
+    const ctx = this.territoryCanvas.getContext("2d");
+    if (ctx !== null) {
+      const w = this.territoryCanvas.width;
+      const h = this.territoryCanvas.height;
+      const img = ctx.createImageData(w, h);
+      const data = img.data;
+      const colors = factionIds.map((fid) => factionColor(fid));
+      for (let i = 0; i < owner.length; i += 1) {
+        const fi = owner[i] as number;
+        const p = i * 4;
+        if (fi === -1) {
+          continue; // 透明（アルファ0）のまま＝無所属
+        }
+        const color = colors[fi] as number;
+        data[p] = (color >> 16) & 0xff;
+        data[p + 1] = (color >> 8) & 0xff;
+        data[p + 2] = color & 0xff;
+        data[p + 3] = 58; // 淡く色分け（下の地形が透けて見える）
+      }
+      ctx.putImageData(img, 0, 0);
+      this.territorySprite.texture.source.update();
+    }
+
+    // 勢力名ラベル: 支配域の重心に大きく淡く置く
+    const seen = new Set<string>();
+    for (const [fid, centroid] of centroids) {
+      const faction = this.world.factions.get(fid);
+      if (faction === undefined || faction.fallenTick !== undefined) {
+        continue;
+      }
+      seen.add(fid);
+      let label = this.factionLabels.get(fid);
+      if (label === undefined) {
+        label = new Text({
+          text: this.names.faction(fid),
+          style: {
+            fontFamily: FONT_JP,
+            fontSize: 24,
+            fontWeight: "700",
+            fill: factionColor(fid),
+            stroke: { color: 0x000000, width: 4 },
+            letterSpacing: 3,
+          },
+        });
+        label.anchor.set(0.5, 0.5);
+        label.alpha = 0.5;
+        this.factionLabelLayer.addChild(label);
+        this.factionLabels.set(fid, label);
+      }
+      label.text = this.names.faction(fid);
+      const c = tileCenter(centroid.x, centroid.y);
+      label.x = c.x;
+      label.y = c.y;
+    }
+    for (const [fid, label] of this.factionLabels) {
+      if (!seen.has(fid)) {
+        label.destroy();
+        this.factionLabels.delete(fid);
+      }
+    }
+
+    // 勢力間の敵対線: 遺恨(feud)の濃さを線の太さと赤さで表す（友好関係は勢力単位では追跡していない）
+    this.relationG.clear();
+    const drawn = new Set<string>();
+    for (const faction of this.world.factions.values()) {
+      if (faction.fallenTick !== undefined || !centroids.has(faction.id)) {
+        continue;
+      }
+      for (const [otherId, heat] of faction.feud) {
+        if (heat < 20) {
+          continue;
+        }
+        const key = [faction.id, otherId].sort().join(":");
+        if (drawn.has(key)) {
+          continue;
+        }
+        drawn.add(key);
+        const other = this.world.factions.get(otherId);
+        const otherCentroid = centroids.get(otherId);
+        if (other === undefined || other.fallenTick !== undefined || otherCentroid === undefined) {
+          continue;
+        }
+        const ca = centroids.get(faction.id);
+        if (ca === undefined) {
+          continue;
+        }
+        const from = tileCenter(ca.x, ca.y);
+        const to = tileCenter(otherCentroid.x, otherCentroid.y);
+        const alpha = Math.min(0.75, 0.15 + heat / 130);
+        const width = Math.min(4, 1 + heat / 40);
+        this.relationG.moveTo(from.x, from.y).lineTo(to.x, to.y).stroke({ width, color: 0xcc3322, alpha });
+      }
+    }
+  }
+
   // 攻囲される都市の周りに輪を描く（遠目にも「今どこが囲まれているか」がひと目で分かる）
   private redrawSieges(): void {
     this.siegeG.clear();
@@ -599,6 +741,10 @@ export class WorldView {
     }
     for (const [, sprite] of this.convoySprites) {
       sprite.root.scale.set(Math.min(2, counter));
+    }
+    for (const [, label] of this.factionLabels) {
+      // 勢力名は国土を眺める規模の文字。近寄るほど読み物の主役ではなくなるので控えめに縮む
+      label.scale.set(Math.min(3.2, Math.max(1.1, counter * 1.4)));
     }
     for (const [, mark] of this.battleMarks) {
       mark.scale.set(Math.min(2.4, Math.max(1, counter)));
